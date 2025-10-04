@@ -61,20 +61,10 @@ export default function App() {
       console.log('Camera stream obtained:', stream);
       streamRef.current = stream;
       
-      // Wait for video element to be available with retries
-      let videoElement = videoRef.current;
-      let retries = 0;
-      const maxRetries = 10;
-      
-      while (!videoElement && retries < maxRetries) {
-        console.log(`Waiting for video element... attempt ${retries + 1}`);
-        await new Promise(resolve => setTimeout(resolve, 100));
-        videoElement = videoRef.current;
-        retries++;
-      }
-      
+      // Get video element (should always be available now)
+      const videoElement = videoRef.current;
       if (!videoElement) {
-        throw new Error('Video element not found after multiple attempts');
+        throw new Error('Video element not found');
       }
       
       console.log('Video element found, setting source...');
@@ -314,10 +304,10 @@ export default function App() {
         {/* Header */}
         <header className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            Sign Language Translator
+            HandSpeak AI
           </h1>
           <p className="text-lg text-gray-600">
-            Real-time American Sign Language to Text Translation
+            Instant Sign Language Recognition & Translation
           </p>
         </header>
 
@@ -374,29 +364,32 @@ export default function App() {
 
                     {/* Camera Feed */}
                     <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
-                      {cameraState.isLoading ? (
-                        <div className="w-full h-full flex items-center justify-center text-white">
+                      {/* Always render video element for ref access */}
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className={`w-full h-full object-cover ${cameraState.isActive ? 'block' : 'hidden'}`}
+                      />
+                      <canvas
+                        ref={canvasRef}
+                        className="absolute inset-0 pointer-events-none"
+                        style={{ display: 'none' }}
+                      />
+                      
+                      {/* Loading overlay */}
+                      {cameraState.isLoading && (
+                        <div className="absolute inset-0 w-full h-full flex items-center justify-center text-white bg-black bg-opacity-75">
                           <div className="text-center">
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
                             <p className="text-sm">Initializing camera...</p>
                           </div>
                         </div>
-                      ) : cameraState.isActive ? (
-                        <>
-                          <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            muted
-                            className="w-full h-full object-cover"
-                          />
-                          <canvas
-                            ref={canvasRef}
-                            className="absolute inset-0 pointer-events-none"
-                            style={{ display: 'none' }}
-                          />
-                        </>
-                      ) : (
+                      )}
+                      
+                      {/* Placeholder when camera not active */}
+                      {!cameraState.isActive && !cameraState.isLoading && (
                         <div className="w-full h-full flex items-center justify-center text-white">
                           <div className="text-center">
                             <Camera className="h-16 w-16 mx-auto mb-4 opacity-60" />
