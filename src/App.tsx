@@ -1,11 +1,12 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Camera, Type, Settings, Play, Square, AlertCircle, CheckCircle } from 'lucide-react';
+import { Camera, Type, Settings, Play, Square, AlertCircle, CheckCircle, Volume2 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Toaster } from './components/ui/sonner';
+import TextToSpeech from './components/TextToSpeech';
 
 interface TranslationEntry {
   id: string;
@@ -70,6 +71,10 @@ export default function App() {
       console.log('Video element found, setting source...');
       videoElement.srcObject = stream;
       
+      // Force video to be visible
+      videoElement.style.display = 'block';
+      videoElement.style.visibility = 'visible';
+      
       // Wait for video to load
       await new Promise<void>((resolve, reject) => {
         const onLoadedMetadata = () => {
@@ -101,12 +106,47 @@ export default function App() {
       });
       
       console.log('Camera initialized successfully');
-      setCameraState({
-        isActive: true,
-        hasPermission: true,
-        error: null,
-        isLoading: false
-      });
+      
+      // Wait for video to actually load before setting state
+      let retryCount = 0;
+      const maxRetries = 50; // 5 seconds max
+      
+      const checkVideoReady = () => {
+        if (videoRef.current && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
+          console.log('Video is actually ready, setting camera state');
+          setCameraState({
+            isActive: true,
+            hasPermission: true,
+            error: null,
+            isLoading: false
+          });
+          
+          // Ensure video is visible after state update
+          setTimeout(() => {
+            if (videoRef.current) {
+              videoRef.current.style.display = 'block';
+              videoRef.current.style.visibility = 'visible';
+            }
+          }, 100);
+          
+          // Automatically start recognition when camera is ready
+          setIsRecording(true);
+        } else if (retryCount < maxRetries) {
+          console.log('Video not ready yet, retrying...', retryCount);
+          retryCount++;
+          setTimeout(checkVideoReady, 100);
+        } else {
+          console.error('Video failed to load after maximum retries');
+          setCameraState({
+            isActive: false,
+            hasPermission: false,
+            error: 'Camera video failed to load',
+            isLoading: false
+          });
+        }
+      };
+      
+      checkVideoReady();
       
     } catch (error: any) {
       console.error('Camera initialization failed:', error);
@@ -208,7 +248,7 @@ export default function App() {
         };
         
         setTranslations(prev => [newTranslation, ...prev]);
-        setCurrentText(prev => prev ? `${prev} ${gesture}` : gesture);
+        setCurrentText(gesture);
         
         // Play sound notification
         try {
@@ -279,7 +319,7 @@ export default function App() {
   }, []);
 
   const toggleRecording = () => {
-    console.log('Toggle recording clicked');
+    console.log('Toggle recording clicked, current isRecording:', isRecording);
     
     if (!cameraState.isActive) {
       console.log('Initializing camera...');
@@ -287,8 +327,17 @@ export default function App() {
       return;
     }
     
-    setIsRecording(!isRecording);
-    if (!isRecording) {
+    const newRecordingState = !isRecording;
+    console.log('Setting isRecording to:', newRecordingState);
+    setIsRecording(newRecordingState);
+    
+    if (!newRecordingState) {
+      // Stop recording - also stop the camera
+      console.log('Stopping recording and camera...');
+      setCurrentText('');
+      stopCamera();
+    } else {
+      // Clear current text when starting new recording
       setCurrentText('');
     }
   };
@@ -299,42 +348,64 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen rounded-3xl mx-4 my-4" style={{
+      background: 'linear-gradient(135deg, #fce7f3 0%, #f3e8ff 25%, #e0e7ff 50%, #f0f9ff 75%, #f0fdf4 100%)'
+    }}>
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Header */}
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+        <header className="text-center mb-16">
+          <div className="mb-4">
+            <p className="text-sm font-normal text-gray-600 tracking-wide">HACKHARVARD 2025</p>
+          </div>
+          <h1 className="font-bold text-gray-900 mb-6 tracking-tight" style={{ 
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: '4rem',
+            lineHeight: '1.1',
+            fontWeight: '700'
+          }}>
             HandSpeak AI
           </h1>
-          <p className="text-lg text-gray-600">
+          <p className="text-xl text-gray-700 font-medium mb-8" style={{ 
+            fontFamily: 'system-ui, -apple-system, sans-serif'
+          }}>
             Instant Sign Language Recognition & Translation
           </p>
         </header>
 
         {/* Main Content */}
         <Tabs defaultValue="translator" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 max-w-md mx-auto">
-            <TabsTrigger value="translator" className="flex items-center gap-2">
-              <Camera className="h-4 w-4" />
+          <TabsList className="grid w-full grid-cols-3 max-w-md mx-auto bg-white border border-gray-200 rounded-lg p-2" style={{ 
+            fontFamily: 'system-ui, -apple-system, sans-serif'
+          }}>
+            <TabsTrigger value="translator" className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold" style={{ 
+              fontFamily: 'system-ui, -apple-system, sans-serif'
+            }}>
+              <Camera className="h-6 w-6" />
               Translator
             </TabsTrigger>
-            <TabsTrigger value="history" className="flex items-center gap-2">
-              <Type className="h-4 w-4" />
+            <TabsTrigger value="history" className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold" style={{ 
+              fontFamily: 'system-ui, -apple-system, sans-serif'
+            }}>
+              <Type className="h-6 w-6" />
               History
             </TabsTrigger>
-            <TabsTrigger value="settings" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
+            <TabsTrigger value="settings" className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold" style={{ 
+              fontFamily: 'system-ui, -apple-system, sans-serif'
+            }}>
+              <Settings className="h-6 w-6" />
               Settings
             </TabsTrigger>
           </TabsList>
 
           {/* Translator Tab */}
           <TabsContent value="translator" className="space-y-6">
-            <div className="grid lg:grid-cols-2 gap-6">
+            <div className="grid lg:grid-cols-2 gap-6 lg:items-stretch">
               {/* Camera Section */}
-              <Card>
+              <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+                  <CardTitle className="flex items-center gap-2 text-xl font-semibold text-gray-900" style={{ 
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
                     <Camera className="h-5 w-5" />
                     Camera Feed
                     {cameraState.isActive && (
@@ -363,14 +434,15 @@ export default function App() {
                     )}
 
                     {/* Camera Feed */}
-                    <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                    <div className="relative bg-black rounded-lg overflow-hidden aspect-video border border-gray-600">
                       {/* Always render video element for ref access */}
                       <video
                         ref={videoRef}
                         autoPlay
                         playsInline
                         muted
-                        className={`w-full h-full object-cover ${cameraState.isActive ? 'block' : 'hidden'}`}
+                        className="w-full h-full object-cover"
+                        style={{ display: cameraState.isActive ? 'block' : 'none' }}
                       />
                       <canvas
                         ref={canvasRef}
@@ -380,21 +452,27 @@ export default function App() {
                       
                       {/* Loading overlay */}
                       {cameraState.isLoading && (
-                        <div className="absolute inset-0 w-full h-full flex items-center justify-center text-white bg-black bg-opacity-75">
+                        <div className="absolute inset-0 w-full h-full flex items-center justify-center text-white bg-black bg-opacity-90">
                           <div className="text-center">
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                            <p className="text-sm">Initializing camera...</p>
+                            <p className="text-sm font-medium" style={{ 
+                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                            }}>Initializing camera...</p>
                           </div>
                         </div>
                       )}
                       
                       {/* Placeholder when camera not active */}
                       {!cameraState.isActive && !cameraState.isLoading && (
-                        <div className="w-full h-full flex items-center justify-center text-white">
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
                           <div className="text-center">
-                            <Camera className="h-16 w-16 mx-auto mb-4 opacity-60" />
-                            <h3 className="text-xl mb-2">Camera Ready</h3>
-                            <p className="text-sm opacity-80">
+                            <Camera className="h-16 w-16 mx-auto mb-4 opacity-60 text-white" />
+                            <h3 className="text-xl mb-2 font-semibold text-white" style={{ 
+                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                            }}>Camera Ready</h3>
+                            <p className="text-sm opacity-80 text-gray-300" style={{ 
+                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                            }}>
                               Click "Start Recognition" to activate camera
                             </p>
                           </div>
@@ -404,13 +482,27 @@ export default function App() {
 
                     {/* Controls */}
                     <div className="flex flex-col gap-3">
-                      <div className="flex justify-center gap-2">
+                      <div className="flex justify-center">
                         <Button
                           onClick={toggleRecording}
                           size="lg"
-                          variant={isRecording ? "destructive" : "default"}
                           disabled={cameraState.isLoading}
-                          className="px-8"
+                          variant={isRecording ? "destructive" : "default"}
+                          className={`px-8 font-medium rounded-lg ${
+                            isRecording 
+                              ? 'bg-red-600 hover:bg-red-700 text-white border-2 border-red-600 shadow-lg' 
+                              : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-lg'
+                          }`}
+                          style={{ 
+                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                            minHeight: '48px',
+                            minWidth: '200px',
+                            color: isRecording ? 'white' : 'black',
+                            backgroundColor: isRecording ? '#dc2626' : 'white',
+                            borderColor: isRecording ? '#dc2626' : '#d1d5db',
+                            zIndex: 10,
+                            position: 'relative'
+                          }}
                         >
                           {isRecording ? (
                             <>
@@ -425,56 +517,48 @@ export default function App() {
                           )}
                         </Button>
                       </div>
-                      
-                      {cameraState.isActive && (
-                        <div className="flex justify-center">
-                          <Button
-                            onClick={stopCamera}
-                            variant="outline"
-                            size="lg"
-                            className="px-6"
-                          >
-                            <Camera className="h-5 w-5 mr-2" />
-                            Stop Camera
-                          </Button>
-                        </div>
-                      )}
                     </div>
 
                     {/* Status */}
                     <div className="text-center text-sm text-gray-600">
                       {cameraState.isLoading ? (
-                        <p>Initializing camera...</p>
+                        <p style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>Initializing camera...</p>
                       ) : isRecording ? (
-                        <p className="flex items-center justify-center gap-2">
+                        <p className="flex items-center justify-center gap-2" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
                           <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                           Processing sign language gestures...
                         </p>
                       ) : cameraState.isActive ? (
-                        <p>Camera ready. Click "Start Recognition" to begin translation.</p>
+                        <p style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>Camera ready. Click "Start Recognition" to begin translation.</p>
                       ) : (
-                        <p>Click "Start Recognition" to activate camera and begin translation.</p>
+                        <p style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>Click "Start Recognition" to activate camera and begin translation.</p>
                       )}
                     </div>
+
                   </div>
                 </CardContent>
               </Card>
 
+
               {/* Translation Output */}
-              <div className="space-y-4">
+              <div className="space-y-4 h-full flex flex-col">
                 {/* Current Translation */}
-                <Card>
+                <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2 text-xl font-semibold text-gray-900" style={{ 
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
                       <Type className="h-5 w-5" />
                       Current Translation
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="min-h-[120px] p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border-2 border-dashed border-blue-200">
+                    <div className="min-h-[120px] p-4 bg-gray-50 rounded-lg border border-gray-200">
                       {currentText ? (
                         <div className="space-y-2">
-                          <p className="text-lg text-gray-900 leading-relaxed">{currentText}</p>
+                          <p className="text-lg text-gray-900 leading-relaxed font-medium" style={{ 
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>{currentText}</p>
                           <Button
                             size="sm"
                             variant="outline"
@@ -484,7 +568,9 @@ export default function App() {
                           </Button>
                         </div>
                       ) : (
-                        <p className="text-gray-500 italic text-center py-4">
+                        <p className="text-gray-500 italic text-center py-4 font-medium" style={{ 
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
                           Start recognition to see translations appear here...
                         </p>
                       )}
@@ -492,52 +578,78 @@ export default function App() {
                   </CardContent>
                 </Card>
 
-                {/* Recent Translations */}
-                <Card>
+                {/* Text-to-Speech Section */}
+                <Card className="bg-white border border-gray-200 shadow-sm rounded-lg flex-1">
                   <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span className="flex items-center gap-2">
-                        <Type className="h-5 w-5" />
-                        Recent Translations ({translations.length})
-                      </span>
-                      {translations.length > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={clearHistory}
-                        >
-                          Clear
-                        </Button>
-                      )}
+                    <CardTitle className="flex items-center gap-2 text-xl font-semibold text-gray-900" style={{ 
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      <Volume2 className="h-5 w-5" />
+                      Text-to-Speech
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {translations.slice(0, 10).map((translation) => (
-                        <div
-                          key={translation.id}
-                          className="p-3 bg-white rounded-lg border border-gray-200"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium">{translation.text}</span>
-                            <Badge variant="outline">
-                              {Math.round(translation.confidence * 100)}%
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {translation.timestamp.toLocaleTimeString()}
-                          </p>
-                        </div>
-                      ))}
-                      {translations.length === 0 && (
-                        <p className="text-gray-500 italic text-center py-4">
-                          No translations yet. Start recognition to see results.
-                        </p>
-                      )}
-                    </div>
+                <TextToSpeech 
+                  text={currentText} 
+                />
                   </CardContent>
                 </Card>
+
               </div>
+            </div>
+            
+            {/* Translation History - Full Width at Bottom */}
+            <div className="mt-6">
+              <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between text-xl font-semibold text-gray-900" style={{ 
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    <span className="flex items-center gap-2">
+                      <Type className="h-5 w-5" />
+                      Translation History ({translations.length})
+                    </span>
+                    {translations.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearHistory}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {translations.slice(0, 10).map((translation) => (
+                      <div
+                        key={translation.id}
+                        className="p-3 bg-gray-50 rounded-lg border border-gray-200"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-gray-900" style={{ 
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>{translation.text}</span>
+                          <Badge variant="outline">
+                            {Math.round(translation.confidence * 100)}%
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {translation.timestamp.toLocaleTimeString()}
+                        </p>
+                      </div>
+                    ))}
+                    {translations.length === 0 && (
+                      <p className="text-gray-500 italic text-center py-4 font-medium" style={{ 
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        No translations yet. Start recognition to see results.
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 
