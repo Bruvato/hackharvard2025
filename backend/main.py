@@ -1,20 +1,17 @@
 """
-FastAPI Backend Server for Sign Language Recognition
-Provides REST API endpoints for sign language translation
+ASL Letter Prediction API
+Provides REST API endpoint for ASL letter prediction from hand landmarks
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-import cv2
-import numpy as np
-from PIL import Image
-import io
-import base64
-from typing import List, Dict, Optional
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional, Dict
 import uvicorn
-from sign_language_model import SignLanguageRecognizer
+from classifier_tools.live_hand_tracker import find_closest_asl_match, load_asl_alphabet_data, normalize_hand_rotation
 import logging
+from math import isfinite
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Sign Language Recognition API",
-    description="Real-time sign language recognition and translation using MediaPipe",
+    title="ASL Letter Prediction API",
+    description="Real-time ASL letter prediction from hand landmarks using MediaPipe",
     version="1.0.0"
 )
 
@@ -36,187 +33,266 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize the sign language recognizer
-recognizer = SignLanguageRecognizer()
+
+# Load ASL alphabet data for classification
+load_asl_alphabet_data()
+
+# Pydantic models for request/response
+class LandmarkData(BaseModel):
+    landmark_id: int
+    landmark_name: str
+    x_raw: float
+    y_raw: float
+    z_raw: float
+    x_scaled: float
+    y_scaled: float
+    z_scaled: float
+
+class HandData(BaseModel):
+    hand_index: int
+    hand_label: str
+    confidence: float
+    landmarks: List[LandmarkData]
+
+class LandmarkRequest(BaseModel):
+    timestamp: Optional[str] = None
+    image_width: int = 640
+    image_height: int = 480
+    hands_detected: int
+    scaling_info: Optional[Dict] = None
+    hands: List[HandData]
+
+class PredictionResponse(BaseModel):
+    success: bool
+    predicted_letter: Optional[str]
+    confidence: float
+    distance: float
+    hand_label: Optional[str]
+    message: str
+    
+    class Config:
+        # Ensure all float values are JSON serializable
+        json_encoders = {
+            float: lambda v: v if isfinite(v) else 0.0
+        }
+
+def process_landmarks_for_classifier(hand_data: HandData, image_width: int, image_height: int):
+    """Process landmarks the same way as classifier tools"""
+    landmarks_data = []
+    
+    for landmark in hand_data.landmarks:
+        # Get raw pixel coordinates (already converted from normalized coordinates)
+        x_raw = landmark.x_raw
+        y_raw = landmark.y_raw
+        z_raw = landmark.z_raw
+        
+        # Calculate edge-to-edge scaling using raw coordinates
+        all_x_coords = [landmark.x_raw for landmark in hand_data.landmarks]
+        all_y_coords = [landmark.y_raw for landmark in hand_data.landmarks]
+        
+        min_x = min(all_x_coords)
+        max_x = max(all_x_coords)
+        min_y = min(all_y_coords)
+        max_y = max(all_y_coords)
+        
+        # Calculate scale factor to fit within target size
+        target_size = 2000
+        scale_x = target_size / (max_x - min_x) if max_x != min_x else 1.0
+        scale_y = target_size / (max_y - min_y) if max_y != min_y else 1.0
+        scale_factor = min(scale_x, scale_y)
+        
+        # Calculate offsets to center the scaled landmarks
+        scaled_width = (max_x - min_x) * scale_factor
+        scaled_height = (max_y - min_y) * scale_factor
+        offset_x = (target_size - scaled_width) / 2
+        offset_y = (target_size - scaled_height) / 2
+        
+        scaling_info = {
+            "min_x": min_x,
+            "max_x": max_x,
+            "min_y": min_y,
+            "max_y": max_y,
+            "scale_factor": scale_factor,
+            "offset_x": offset_x,
+            "offset_y": offset_y,
+            "target_size": target_size
+        }
+        
+        # Apply edge-to-edge scaling
+        if scaling_info:
+            x_scaled = (x_raw - scaling_info["min_x"]) * scaling_info["scale_factor"] + scaling_info["offset_x"]
+            y_scaled = (y_raw - scaling_info["min_y"]) * scaling_info["scale_factor"] + scaling_info["offset_y"]
+            z_scaled = z_raw * scaling_info["scale_factor"]
+        else:
+            x_scaled = x_raw
+            y_scaled = y_raw
+            z_scaled = z_raw
+        
+        landmark_data = {
+            "landmark_id": landmark.landmark_id,
+            "landmark_name": landmark.landmark_name,
+            "x_raw": float(x_raw),
+            "y_raw": float(y_raw),
+            "z_raw": float(z_raw),
+            "x_scaled": float(x_scaled),
+            "y_scaled": float(y_scaled),
+            "z_scaled": float(z_scaled)
+        }
+        
+        landmarks_data.append(landmark_data)
+    
+    # Apply rotation normalization
+    landmarks_data = normalize_hand_rotation(landmarks_data)
+    
+    return landmarks_data
 
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
     return {
-        "message": "Sign Language Recognition API",
+        "message": "ASL Letter Prediction API",
         "version": "1.0.0",
         "endpoints": {
-            "recognize": "/recognize",
-            "recognize_base64": "/recognize-base64",
-            "health": "/health",
-            "gestures": "/gestures"
+            "predict_letter": "/predict-letter",
+            "health": "/health"
         }
     }
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "service": "sign-language-api"}
+    return {"status": "healthy", "service": "asl-letter-prediction-api"}
 
-@app.get("/gestures")
-async def get_supported_gestures():
-    """Get list of supported sign language gestures"""
-    return {
-        "gestures": list(recognizer.sign_gestures.keys()),
-        "translations": {
-            gesture: recognizer._get_translation(gesture) 
-            for gesture in recognizer.sign_gestures.keys()
+
+
+
+
+
+@app.post("/predict-letter", response_model=PredictionResponse)
+async def predict_letter_from_landmarks(request: LandmarkRequest):
+    """
+    Predict ASL letter from hand landmark data using classifier tools
+    
+    Args:
+        request: LandmarkRequest containing hand landmark data
+        
+    Returns:
+        PredictionResponse with predicted letter and confidence
+    """
+    try:
+        logger.info(f"Received prediction request with {len(request.hands)} hands")
+        
+        # Validate request data
+        if not request.hands:
+            logger.warning("No hands provided in request")
+            return PredictionResponse(
+                success=False,
+                predicted_letter=None,
+                confidence=0.0,
+                distance=999999.0,
+                hand_label=None,
+                message="No hand data provided"
+            )
+        
+        # Validate landmark data
+        for hand_idx, hand in enumerate(request.hands):
+            if not hand.landmarks or len(hand.landmarks) != 21:
+                logger.warning(f"Hand {hand_idx} has {len(hand.landmarks) if hand.landmarks else 0} landmarks, expected 21")
+                return PredictionResponse(
+                    success=False,
+                    predicted_letter=None,
+                    confidence=0.0,
+                    distance=999999.0,
+                    hand_label=None,
+                    message=f"Invalid landmark count: expected 21, got {len(hand.landmarks) if hand.landmarks else 0}"
+                )
+            
+            # Validate landmark coordinates
+            for landmark in hand.landmarks:
+                if not all(isinstance(getattr(landmark, coord), (int, float)) and 
+                          isfinite(getattr(landmark, coord)) for coord in ['x_raw', 'y_raw', 'z_raw', 'x_scaled', 'y_scaled', 'z_scaled']):
+                    logger.warning(f"Invalid landmark coordinates in hand {hand_idx}")
+                    return PredictionResponse(
+                        success=False,
+                        predicted_letter=None,
+                        confidence=0.0,
+                        distance=999999.0,
+                        hand_label=None,
+                        message="Invalid landmark coordinates detected"
+                    )
+        
+        # Convert request to the format expected by find_closest_asl_match
+        landmarks_data = {
+            "timestamp": request.timestamp,
+            "image_width": request.image_width,
+            "image_height": request.image_height,
+            "hands_detected": request.hands_detected,
+            "scaling_info": request.scaling_info,
+            "hands": []
         }
-    }
-
-@app.post("/recognize")
-async def recognize_sign_language(file: UploadFile = File(...)):
-    """
-    Recognize sign language from uploaded image
-    
-    Args:
-        file: Image file (JPEG, PNG, etc.)
         
-    Returns:
-        JSON response with detected gestures and landmarks
-    """
-    try:
-        # Validate file type
-        if not file.content_type.startswith('image/'):
-            raise HTTPException(status_code=400, detail="File must be an image")
+        # Process each hand using classifier tools (applies scaling and normalization)
+        for hand in request.hands:
+            # Process landmarks with scaling and normalization
+            processed_landmarks = process_landmarks_for_classifier(hand, request.image_width, request.image_height)
+            
+            hand_dict = {
+                "hand_index": hand.hand_index,
+                "hand_label": hand.hand_label,
+                "confidence": hand.confidence,
+                "landmarks": processed_landmarks
+            }
+            
+            landmarks_data["hands"].append(hand_dict)
         
-        # Read image data
-        image_data = await file.read()
+        # Use the classifier to find the closest ASL match
+        best_match, best_distance, best_hand_label = find_closest_asl_match(landmarks_data)
         
-        # Convert to OpenCV format
-        image = Image.open(io.BytesIO(image_data))
-        image = image.convert('RGB')
-        image_array = np.array(image)
-        frame = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+        if best_match is None:
+            logger.warning("No ASL letter match found")
+            return PredictionResponse(
+                success=False,
+                predicted_letter=None,
+                confidence=0.0,
+                distance=999999.0,
+                hand_label=None,
+                message="No ASL letter match found"
+            )
         
-        # Process the frame
-        result = recognizer.process_frame(frame)
+        # Validate distance value - convert inf to a large number for JSON serialization
+        if not isfinite(best_distance):
+            logger.warning(f"Invalid distance value: {best_distance}")
+            best_distance = 999999.0
         
-        logger.info(f"Processed image: {file.filename}, detected {len(result['gestures'])} gestures")
+        # Calculate confidence based on distance (lower distance = higher confidence)
+        # Normalize distance to confidence score (0-1)
+        max_expected_distance = 1000.0  # Adjust based on your data
+        confidence = max(0.0, min(1.0, 1.0 - (best_distance / max_expected_distance)))
         
-        return JSONResponse(content={
-            "success": True,
-            "filename": file.filename,
-            "result": result,
-            "message": f"Detected {len(result['gestures'])} gesture(s)"
-        })
+        # Get the hand label from the request
+        request_hand_label = request.hands[0].hand_label if request.hands else "Unknown"
         
-    except Exception as e:
-        logger.error(f"Error processing image {file.filename}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
-
-@app.post("/recognize-base64")
-async def recognize_sign_language_base64(data: Dict):
-    """
-    Recognize sign language from base64 encoded image
-    
-    Args:
-        data: Dictionary containing 'image' field with base64 encoded image
+        logger.info(f"Predicted letter: {best_match.upper()}, distance: {best_distance:.2f}, confidence: {confidence:.2f}")
         
-    Returns:
-        JSON response with detected gestures and landmarks
-    """
-    try:
-        # Extract base64 image data
-        if 'image' not in data:
-            raise HTTPException(status_code=400, detail="Missing 'image' field in request data")
+        # Ensure all response values are JSON serializable
+        def ensure_finite(value):
+            return value if isfinite(value) else 0.0
         
-        # Decode base64 image
-        image_data = base64.b64decode(data['image'])
+        # Create response with validated values
+        response = PredictionResponse(
+            success=True,
+            predicted_letter=best_match.upper(),
+            confidence=ensure_finite(confidence),
+            distance=ensure_finite(best_distance),
+            hand_label=request_hand_label,
+            message=f"Successfully predicted letter '{best_match.upper()}'"
+        )
         
-        # Convert to OpenCV format
-        image = Image.open(io.BytesIO(image_data))
-        image = image.convert('RGB')
-        image_array = np.array(image)
-        frame = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-        
-        # Process the frame
-        result = recognizer.process_frame(frame)
-        
-        logger.info(f"Processed base64 image, detected {len(result['gestures'])} gestures")
-        
-        return JSONResponse(content={
-            "success": True,
-            "result": result,
-            "message": f"Detected {len(result['gestures'])} gesture(s)"
-        })
+        return response
         
     except Exception as e:
-        logger.error(f"Error processing base64 image: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
-
-@app.post("/recognize-video-frame")
-async def recognize_video_frame(data: Dict):
-    """
-    Recognize sign language from video frame data
-    
-    Args:
-        data: Dictionary containing frame data
-        
-    Returns:
-        JSON response with detected gestures and landmarks
-    """
-    try:
-        # This endpoint can be used for real-time video processing
-        # For now, it processes base64 encoded frames
-        return await recognize_sign_language_base64(data)
-        
-    except Exception as e:
-        logger.error(f"Error processing video frame: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing video frame: {str(e)}")
-
-@app.post("/batch-recognize")
-async def batch_recognize(files: List[UploadFile] = File(...)):
-    """
-    Recognize sign language from multiple images
-    
-    Args:
-        files: List of image files
-        
-    Returns:
-        JSON response with results for all images
-    """
-    try:
-        results = []
-        
-        for file in files:
-            try:
-                # Process each file
-                image_data = await file.read()
-                image = Image.open(io.BytesIO(image_data))
-                image = image.convert('RGB')
-                image_array = np.array(image)
-                frame = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-                
-                result = recognizer.process_frame(frame)
-                
-                results.append({
-                    "filename": file.filename,
-                    "success": True,
-                    "result": result
-                })
-                
-            except Exception as e:
-                results.append({
-                    "filename": file.filename,
-                    "success": False,
-                    "error": str(e)
-                })
-        
-        return JSONResponse(content={
-            "success": True,
-            "total_files": len(files),
-            "results": results
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in batch processing: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error in batch processing: {str(e)}")
+        logger.error(f"Error predicting letter from landmarks: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error predicting letter: {str(e)}")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):

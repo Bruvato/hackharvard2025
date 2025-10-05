@@ -31,7 +31,9 @@ import {
 import { Toaster } from "../components/ui/sonner";
 import TextToSpeech from "../components/TextToSpeech";
 import { useSignLanguageRecognition } from "../hooks/useSignLanguageRecognition";
+import { useASLPrediction } from "../hooks/useASLPrediction";
 import MediaPipeHandLandmarker from "../components/MediaPipeHandLandmarker";
+import PredictionDisplay from "../components/PredictionDisplay";
 
 interface TranslationEntry {
   id: string;
@@ -62,10 +64,10 @@ export default function App() {
   const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number | undefined>(undefined);
 
-  // Initialize sign language recognition hook
+  // Initialize sign language recognition hook (disabled - using new prediction system)
   const {
-    isProcessing,
-    isBackendAvailable,
+    isProcessing: isOldProcessing,
+    isBackendAvailable: isOldBackendAvailable,
     lastResult,
     error: recognitionError,
     processFrame,
@@ -78,6 +80,25 @@ export default function App() {
     confidenceThreshold: 0.7, // 70% confidence threshold
     maxProcessingRate: 1, // Max 1 request per second
   });
+
+  // Initialize ASL prediction hook
+  const {
+    prediction,
+    isProcessing: isPredicting,
+    isBackendAvailable: isPredictionBackendAvailable,
+    error: predictionError,
+    processHandResults,
+    clearPrediction,
+    checkBackendHealth: checkPredictionBackendHealth,
+  } = useASLPrediction({
+    processingInterval: 1000, // Process every 1 second
+    confidenceThreshold: 0.6, // 60% confidence threshold
+    maxProcessingRate: 2, // Max 2 requests per second
+  });
+
+  // Use new prediction system instead of old recognition
+  const isProcessing = isPredicting;
+  const isBackendAvailable = isPredictionBackendAvailable;
 
   // Simple camera initialization
   const initializeCamera = useCallback(async () => {
@@ -267,52 +288,20 @@ export default function App() {
     // Draw current video frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Process frame with real API
+    // Process frame with real API (disabled - using new prediction system)
+    // The new prediction system handles frame processing via MediaPipeHandLandmarker
+    // and sends landmark data directly to /predict-letter endpoint
     try {
-      const result = await processFrame(canvas);
-
-      if (result && result.gestures.length > 0) {
-        const bestGesture = getBestGesture();
-        if (bestGesture) {
-          const newTranslation: TranslationEntry = {
-            id: `${Date.now()}-${Math.random()}`,
-            text: bestGesture.translation,
-            confidence: bestGesture.confidence,
-            timestamp: new Date(),
-          };
-
-          setTranslations((prev) => [newTranslation, ...prev]);
-          setCurrentText(bestGesture.translation);
-
-          // Play sound notification
-          try {
-            const audioContext = new (window.AudioContext ||
-              (window as any).webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-
-            oscillator.frequency.value = 800;
-            oscillator.type = "sine";
-            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(
-              0.01,
-              audioContext.currentTime + 0.2
-            );
-
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.2);
-          } catch (error) {
-            console.warn("Audio notification failed:", error);
-          }
-        }
-      }
+      // Old recognition system disabled to avoid 422 errors
+      // const result = await processFrame(canvas);
+      // ... old processing logic removed
+      console.log(
+        "Old recognition system disabled - using new prediction system"
+      );
     } catch (error) {
       console.error("Frame processing failed:", error);
     }
-  }, [isRecording, isBackendAvailable, processFrame, getBestGesture]);
+  }, [isRecording, isBackendAvailable]); // Removed old dependencies
 
   // Start/stop frame processing
   useEffect(() => {
@@ -543,6 +532,16 @@ export default function App() {
                       </Alert>
                     )}
 
+                    {/* Prediction Error */}
+                    {predictionError && (
+                      <Alert className="border-purple-200 bg-purple-50">
+                        <AlertCircle className="h-4 w-4 text-purple-600" />
+                        <AlertDescription className="text-purple-800">
+                          Prediction Error: {predictionError}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     {/* Backend Offline Warning */}
                     {!isBackendAvailable && (
                       <Alert className="border-yellow-200 bg-yellow-50">
@@ -562,7 +561,7 @@ export default function App() {
                         autoPlay
                         playsInline
                         muted
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                         style={{
                           display: cameraState.isActive ? "block" : "none",
                         }}
@@ -633,6 +632,7 @@ export default function App() {
                       canvasRef={canvasRef}
                       isActive={cameraState.isActive && showHandLandmarks}
                       onResults={handleHandResults}
+                      onPredictionRequest={processHandResults}
                     />
 
                     {/* Controls */}
@@ -707,9 +707,9 @@ export default function App() {
                             fontFamily: "system-ui, -apple-system, sans-serif",
                           }}
                         >
-                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse inline-block" />
                           {isBackendAvailable
-                            ? "Processing sign language gestures..."
+                            ? "Processing ASL letter predictions..."
                             : "Camera active, but backend offline"}
                         </p>
                       ) : cameraState.isActive ? (
@@ -720,7 +720,7 @@ export default function App() {
                         >
                           Camera ready.{" "}
                           {isBackendAvailable
-                            ? 'Click "Start Recognition" to begin translation.'
+                            ? 'Click "Start Recognition" to begin ASL letter prediction.'
                             : "Backend offline - start backend server first."}
                         </p>
                       ) : (
@@ -730,13 +730,21 @@ export default function App() {
                           }}
                         >
                           Click "Start Recognition" to activate camera and begin
-                          translation.
+                          ASL letter prediction.
                         </p>
                       )}
                     </div>
                   </div>
                 </CardContent>
               </Card>
+
+              {/* ASL Letter Prediction */}
+              <PredictionDisplay
+                prediction={prediction}
+                isProcessing={isPredicting}
+                isBackendAvailable={isPredictionBackendAvailable}
+                className="mb-4"
+              />
 
               {/* Translation Output */}
               <div className="space-y-4 h-full flex flex-col">

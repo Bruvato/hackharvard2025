@@ -234,9 +234,23 @@ def load_asl_alphabet_data():
     """Load all ASL alphabet landmark data"""
     global asl_alphabet_data
     
-    landmarks_dir = "hand_landmarks"
-    if not os.path.exists(landmarks_dir):
-        print(f"Warning: {landmarks_dir} directory not found!")
+    # Try different possible paths for the landmarks directory
+    possible_paths = [
+        "hand_landmarks",
+        "classifier_tools/hand_landmarks",
+        os.path.join(os.path.dirname(__file__), "hand_landmarks")
+    ]
+    
+    landmarks_dir = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            landmarks_dir = path
+            break
+    
+    if landmarks_dir is None:
+        print(f"Warning: Could not find hand_landmarks directory!")
+        print(f"Tried paths: {possible_paths}")
+        print(f"Current working directory: {os.getcwd()}")
         return
     
     print("Loading ASL alphabet data...")
@@ -255,6 +269,7 @@ def load_asl_alphabet_data():
             print(f"Warning: {json_file} not found!")
     
     print(f"Loaded {len(asl_alphabet_data)} ASL letters")
+
 
 def calculate_rms_distance(live_landmarks, asl_landmarks):
     """Calculate RMS distance between live and ASL landmarks"""

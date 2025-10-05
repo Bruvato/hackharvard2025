@@ -3,12 +3,13 @@ import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import {
   drawConnectors,
   drawLandmarks,
+  drawEnhancedHandLandmarks,
   HAND_CONNECTIONS,
   type Point,
 } from "../lib/drawing-utils";
 
 interface HandResult {
-  landmarks: Point[];
+  landmarks: Array<{ x: number; y: number; z?: number }>;
   handedness: "Left" | "Right";
   score: number;
 }
@@ -18,6 +19,11 @@ interface MediaPipeHandLandmarkerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   isActive: boolean;
   onResults?: (results: { landmarks: HandResult[] }) => void;
+  onPredictionRequest?: (
+    results: { landmarks: HandResult[] },
+    imageWidth: number,
+    imageHeight: number
+  ) => void;
 }
 
 const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = ({
@@ -25,6 +31,7 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = ({
   canvasRef,
   isActive,
   onResults,
+  onPredictionRequest,
 }) => {
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const isInitializedRef = useRef(false);
@@ -110,9 +117,31 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = ({
 
     if (!ctx) return;
 
-    // Set canvas size to match video exactly like the example
-    canvas.style.width = `${video.videoWidth}px`;
-    canvas.style.height = `${video.videoHeight}px`;
+    // Calculate the actual display size of the video (accounting for object-contain)
+    const videoAspectRatio = video.videoWidth / video.videoHeight;
+    const containerAspectRatio = video.clientWidth / video.clientHeight;
+
+    let displayWidth, displayHeight, offsetX, offsetY;
+
+    if (videoAspectRatio > containerAspectRatio) {
+      // Video is wider than container - fit to width
+      displayWidth = video.clientWidth;
+      displayHeight = video.clientWidth / videoAspectRatio;
+      offsetX = 0;
+      offsetY = (video.clientHeight - displayHeight) / 2;
+    } else {
+      // Video is taller than container - fit to height
+      displayWidth = video.clientHeight * videoAspectRatio;
+      displayHeight = video.clientHeight;
+      offsetX = (video.clientWidth - displayWidth) / 2;
+      offsetY = 0;
+    }
+
+    // Set canvas size to match the actual video display area
+    canvas.style.width = `${displayWidth}px`;
+    canvas.style.height = `${displayHeight}px`;
+    canvas.style.left = `${offsetX}px`;
+    canvas.style.top = `${offsetY}px`;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
@@ -122,6 +151,12 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = ({
       videoHeight: video.videoHeight,
       clientWidth: video.clientWidth,
       clientHeight: video.clientHeight,
+      videoAspectRatio,
+      containerAspectRatio,
+      displayWidth,
+      displayHeight,
+      offsetX,
+      offsetY,
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
       canvasStyleWidth: canvas.style.width,
@@ -157,15 +192,24 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = ({
 
       results.landmarks.forEach((landmarks, handIndex) => {
         // Get handedness information first
-        const handedness = results.handednesses[handIndex][0].displayName as
+        let handedness = results.handednesses[handIndex][0].displayName as
           | "Left"
           | "Right";
         const score = results.handednesses[handIndex][0].score;
+
+        // Correct hand label (MediaPipe labels are reversed when camera is not flipped)
+        // This matches the backend logic exactly
+        if (handedness === "Left") {
+          handedness = "Right";
+        } else if (handedness === "Right") {
+          handedness = "Left";
+        }
 
         handResults.push({
           landmarks: landmarks.map((landmark) => ({
             x: landmark.x,
             y: landmark.y,
+            z: landmark.z || 0, // Include z coordinate for 3D processing
           })),
           handedness,
           score,
@@ -187,14 +231,13 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = ({
           });
         }
 
-        drawConnectors(ctx, canvasLandmarks, HAND_CONNECTIONS, {
+        // Use enhanced drawing that matches backend visualization
+        drawEnhancedHandLandmarks(ctx, canvasLandmarks, {
           color: handedness === "Left" ? "#00FF00" : "#FF0000",
-          lineWidth: 5,
-        });
-
-        drawLandmarks(ctx, canvasLandmarks, {
-          color: handedness === "Left" ? "#00FF00" : "#FF0000",
-          lineWidth: 2,
+          lineWidth: 3, // Slightly thicker for better visibility
+          showLandmarkIds: false, // Set to true for debugging
+          showFingerColors: true,
+          handLabel: handedness,
         });
       });
 
@@ -202,10 +245,19 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = ({
       if (onResults) {
         onResults({ landmarks: handResults });
       }
+
+      // Call onPredictionRequest callback if provided
+      if (onPredictionRequest) {
+        onPredictionRequest(
+          { landmarks: handResults },
+          canvas.width,
+          canvas.height
+        );
+      }
     }
 
     ctx.restore();
-  }, [isActive, videoRef, canvasRef, onResults]);
+  }, [isActive, videoRef, canvasRef, onResults, onPredictionRequest]);
 
   // Start/stop processing loop
   useEffect(() => {
