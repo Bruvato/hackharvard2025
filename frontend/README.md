@@ -1,36 +1,157 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HandSpeak AI Frontend
+
+A modern React/Next.js frontend for real-time sign language recognition and translation.
+
+## Features
+
+- **Real-time Camera Feed**: Live video capture with hand landmark detection
+- **Sign Language Recognition**: Integration with backend AI for gesture recognition
+- **Text-to-Speech**: Built-in speech synthesis for translated text
+- **Translation History**: Track and manage past translations
+- **Modern UI**: Beautiful, responsive design with Tailwind CSS
+- **Theme Support**: Light/dark mode with system preference detection
+
+## Tech Stack
+
+- **Next.js 15** - React framework
+- **TypeScript** - Type safety
+- **Tailwind CSS** - Styling
+- **Radix UI** - Accessible components
+- **Lucide React** - Icons
+- **Sonner** - Toast notifications
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+
+- npm or yarn
+- Camera access (for sign language recognition)
+
+### Installation
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Start the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+3. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Backend Integration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The frontend expects a backend server running on `http://localhost:8000` with the following endpoints:
 
-## Learn More
+- `GET /health` - Health check
+- `POST /recognize` - Sign language recognition
 
-To learn more about Next.js, take a look at the following resources:
+## Usage
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **Camera Setup**: Click "Start Recognition" to activate your camera
+2. **Sign Recognition**: Perform sign language gestures in front of the camera
+3. **View Translations**: See real-time translations appear in the current translation panel
+4. **Text-to-Speech**: Use the TTS feature to hear translated text
+5. **History**: View past translations in the History tab
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Components
 
-## Deploy on Vercel
+### Core Components
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **App** (`app/page.tsx`) - Main application component
+- **TextToSpeech** - Speech synthesis component
+- **MediaPipeHandLandmarker** - Hand landmark detection (mock implementation)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### UI Components
+
+- **Button** - Customizable button component
+- **Card** - Container component
+- **Badge** - Status indicators
+- **Alert** - Error and warning messages
+- **Tabs** - Tabbed navigation
+
+### Hooks
+
+- **useSignLanguageRecognition** - Manages sign language recognition logic
+
+## Configuration
+
+The application can be configured through the `useSignLanguageRecognition` hook:
+
+```typescript
+const recognition = useSignLanguageRecognition({
+  processingInterval: 2000, // Process every 2 seconds
+  confidenceThreshold: 0.7, // 70% confidence threshold
+  maxProcessingRate: 1, // Max 1 request per second
+  backendUrl: "http://localhost:8000",
+});
+```
+
+## Development
+
+### Project Structure
+
+```
+frontend/
+├── app/                    # Next.js app directory
+│   ├── globals.css        # Global styles
+│   ├── layout.tsx         # Root layout
+│   └── page.tsx           # Main page
+├── components/            # React components
+│   ├── ui/               # Reusable UI components
+│   ├── TextToSpeech.tsx  # TTS component
+│   └── MediaPipeHandLandmarker.tsx
+├── hooks/                # Custom React hooks
+├── lib/                  # Utility functions
+└── README.md
+```
+
+### Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+
+## Browser Compatibility
+
+- Chrome 90+
+- Firefox 88+
+- Safari 14+
+- Edge 90+
+
+## Troubleshooting
+
+### Camera Issues
+
+- Ensure camera permissions are granted
+- Try refreshing the page
+- Check if another application is using the camera
+
+### Backend Connection
+
+- Verify backend server is running on port 8000
+- Check network connectivity
+- Review browser console for error messages
+
+### Performance
+
+- Close other applications using the camera
+- Ensure good lighting for better recognition
+- Use a modern browser for optimal performance
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## License
+
+This project is part of HackHarvard 2025.
