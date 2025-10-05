@@ -153,97 +153,32 @@ const TextToSpeech: React.FC<TextToSpeechProps> = ({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Text Display */}
-      <div className="min-h-[80px] p-4 bg-gray-50 rounded-lg border border-gray-200">
-        {text ? (
-          <p className="text-sm text-gray-700 leading-relaxed">{text}</p>
+    <Button
+      onClick={toggleSpeech}
+      disabled={!text}
+      variant={isPlaying ? "secondary" : "outline"}
+      size="sm"
+      className="flex items-center gap-2 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+    >
+      {isPlaying ? (
+        isPaused ? (
+          <>
+            <Play className="h-4 w-4" />
+            Resume
+          </>
         ) : (
-          <p className="text-gray-500 italic text-center py-4 text-sm">
-            No text to speak
-          </p>
-        )}
-      </div>
-
-      {/* Controls */}
-      <div className="flex flex-col gap-3">
-        {/* Play/Stop Buttons */}
-        <div className="flex justify-center gap-2">
-          <Button
-            onClick={toggleSpeech}
-            disabled={!text}
-            variant={isPlaying ? "secondary" : "default"}
-            size="sm"
-            className="flex items-center gap-2"
-          >
-            {isPlaying ? (
-              isPaused ? (
-                <>
-                  <Play className="h-4 w-4" />
-                  Resume
-                </>
-              ) : (
-                <>
-                  <VolumeX className="h-4 w-4" />
-                  Pause
-                </>
-              )
-            ) : (
-              <>
-                <Volume2 className="h-4 w-4" />
-                Speak
-              </>
-            )}
-          </Button>
-
-          {isPlaying && (
-            <Button
-              onClick={stopSpeech}
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-2"
-            >
-              <Square className="h-4 w-4" />
-              Stop
-            </Button>
-          )}
-        </div>
-
-        {/* Voice Selection */}
-        {availableVoices.length > 0 && (
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-gray-600">Voice:</label>
-            <select
-              value={selectedVoice?.name || ""}
-              onChange={(e) => {
-                const voice = availableVoices.find(
-                  (v) => v.name === e.target.value
-                );
-                setSelectedVoice(voice || null);
-              }}
-              className="w-full p-2 text-xs border border-gray-300 rounded-md bg-white"
-              disabled={isPlaying}
-            >
-              {availableVoices.map((voice) => (
-                <option key={voice.name} value={voice.name}>
-                  {voice.name} ({voice.lang})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Status */}
-        <div className="text-center text-xs text-gray-500">
-          {isPlaying && (
-            <p className="flex items-center justify-center gap-1">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-              {isPaused ? "Paused" : "Speaking..."}
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
+          <>
+            <VolumeX className="h-4 w-4" />
+            Pause
+          </>
+        )
+      ) : (
+        <>
+          <Volume2 className="h-4 w-4" />
+          Speak
+        </>
+      )}
+    </Button>
   );
 };
 

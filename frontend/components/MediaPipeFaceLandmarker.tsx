@@ -1,34 +1,27 @@
 import React, { useEffect, useRef, useCallback, useState, memo } from "react";
-import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import {
-  drawConnectors,
-  drawLandmarks,
-  drawEnhancedHandLandmarks,
-  HAND_CONNECTIONS,
+  drawFaceConnectors,
+  drawFaceLandmarks,
+  FACE_CONNECTIONS,
   type Point,
 } from "../lib/drawing-utils";
 
-interface HandResult {
+interface FaceResult {
   landmarks: Array<{ x: number; y: number; z?: number }>;
-  handedness: "Left" | "Right";
   score: number;
 }
 
-interface MediaPipeHandLandmarkerProps {
+interface MediaPipeFaceLandmarkerProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   isActive: boolean;
-  onResults?: (results: { landmarks: HandResult[] }) => void;
-  onPredictionRequest?: (
-    results: { landmarks: HandResult[] },
-    imageWidth: number,
-    imageHeight: number
-  ) => void;
+  onResults?: (results: { landmarks: FaceResult[] }) => void;
 }
 
-const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = memo(
-  ({ videoRef, canvasRef, isActive, onResults, onPredictionRequest }) => {
-    const handLandmarkerRef = useRef<HandLandmarker | null>(null);
+const MediaPipeFaceLandmarker: React.FC<MediaPipeFaceLandmarkerProps> = memo(
+  ({ videoRef, canvasRef, isActive, onResults }) => {
+    const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
     const isInitializedRef = useRef(false);
     const animationFrameRef = useRef<number | undefined>(undefined);
     const lastVideoTimeRef = useRef<number>(-1);
@@ -36,7 +29,7 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = memo(
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Initialize MediaPipe HandLandmarker
+    // Initialize MediaPipe FaceLandmarker
     const initializeMediaPipe = useCallback(async () => {
       if (isInitializedRef.current) {
         return;
@@ -46,61 +39,67 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = memo(
         setIsLoading(true);
         setError(null);
 
-        console.log("Initializing MediaPipe HandLandmarker...");
+        console.log("Initializing MediaPipe FaceLandmarker...");
 
         // Create the vision task fileset resolver
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
         );
 
-        // Create the hand landmarker
-        handLandmarkerRef.current = await HandLandmarker.createFromOptions(
+        // Create the face landmarker
+        faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(
           vision,
           {
             baseOptions: {
-              modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+              modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
               delegate: "GPU",
             },
             runningMode: runningModeRef.current,
-            numHands: 2,
+            numFaces: 1,
+            outputFaceBlendshapes: false,
+            outputFacialTransformationMatrixes: false,
           }
         );
 
         // Try CPU delegate as fallback if GPU fails
-        if (!handLandmarkerRef.current) {
+        if (!faceLandmarkerRef.current) {
           console.warn("GPU delegate failed, falling back to CPU");
-          handLandmarkerRef.current = await HandLandmarker.createFromOptions(
+          faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(
             vision,
             {
               baseOptions: {
-                modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+                modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
                 delegate: "CPU",
               },
               runningMode: runningModeRef.current,
-              numHands: 2,
+              numFaces: 1,
+              outputFaceBlendshapes: false,
+              outputFacialTransformationMatrixes: false,
             }
           );
         }
 
-        console.log("MediaPipe HandLandmarker initialized successfully");
+        console.log("MediaPipe FaceLandmarker initialized successfully");
         isInitializedRef.current = true;
         setIsLoading(false);
       } catch (err) {
-        console.error("Failed to initialize MediaPipe:", err);
+        console.error("Failed to initialize MediaPipe FaceLandmarker:", err);
         setError(
-          err instanceof Error ? err.message : "Failed to initialize MediaPipe"
+          err instanceof Error
+            ? err.message
+            : "Failed to initialize MediaPipe FaceLandmarker"
         );
         setIsLoading(false);
       }
     }, []);
 
-    // Process frame for hand landmarks
+    // Process frame for face landmarks
     const processFrame = useCallback(async () => {
       if (
         !isActive ||
         !videoRef.current ||
         !canvasRef.current ||
-        !handLandmarkerRef.current ||
+        !faceLandmarkerRef.current ||
         !isInitializedRef.current
       ) {
         return;
@@ -140,39 +139,21 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = memo(
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      // Debug: Log dimensions to help troubleshoot positioning
-      console.log("Video dimensions:", {
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        clientWidth: video.clientWidth,
-        clientHeight: video.clientHeight,
-        videoAspectRatio,
-        containerAspectRatio,
-        displayWidth,
-        displayHeight,
-        offsetX,
-        offsetY,
-        canvasWidth: canvas.width,
-        canvasHeight: canvas.height,
-        canvasStyleWidth: canvas.style.width,
-        canvasStyleHeight: canvas.style.height,
-      });
-
       // Switch to video mode if needed
       if (runningModeRef.current === "IMAGE") {
         runningModeRef.current = "VIDEO";
-        await handLandmarkerRef.current.setOptions({
+        await faceLandmarkerRef.current.setOptions({
           runningMode: "VIDEO",
         });
       }
 
-      // Detect hand landmarks
+      // Detect face landmarks
       const startTimeMs = performance.now();
       let results;
 
       if (lastVideoTimeRef.current !== video.currentTime) {
         lastVideoTimeRef.current = video.currentTime;
-        results = handLandmarkerRef.current.detectForVideo(video, startTimeMs);
+        results = faceLandmarkerRef.current.detectForVideo(video, startTimeMs);
       } else {
         return; // No new frame to process
       }
@@ -182,35 +163,23 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = memo(
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Draw results if landmarks are detected
-      if (results.landmarks && results.landmarks.length > 0) {
-        const handResults: HandResult[] = [];
+      if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+        const faceResults: FaceResult[] = [];
 
-        results.landmarks.forEach((landmarks, handIndex) => {
-          // Get handedness information first
-          let handedness = results.handednesses[handIndex][0].displayName as
-            | "Left"
-            | "Right";
-          const score = results.handednesses[handIndex][0].score;
+        results.faceLandmarks.forEach((landmarks, faceIndex) => {
+          // Use a default score of 1.0 for detected faces
+          const score = 1.0;
 
-          // Correct hand label (MediaPipe labels are reversed when camera is not flipped)
-          // This matches the backend logic exactly
-          if (handedness === "Left") {
-            handedness = "Right";
-          } else if (handedness === "Right") {
-            handedness = "Left";
-          }
-
-          handResults.push({
+          faceResults.push({
             landmarks: landmarks.map((landmark) => ({
               x: landmark.x,
               y: landmark.y,
-              z: landmark.z || 0, // Include z coordinate for 3D processing
+              z: landmark.z || 0,
             })),
-            handedness,
             score,
           });
 
-          // Draw hand connections and landmarks
+          // Draw face connections and landmarks
           // MediaPipe landmarks are normalized (0-1), so multiply by canvas dimensions
           const canvasLandmarks = landmarks.map((landmark) => ({
             x: landmark.x * canvas.width,
@@ -218,41 +187,35 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = memo(
           }));
 
           // Debug: Log first few landmark positions
-          if (handIndex === 0 && landmarks.length > 0) {
-            console.log("First landmark positions:", {
+          if (faceIndex === 0 && landmarks.length > 0) {
+            console.log("First face landmark positions:", {
               original: { x: landmarks[0].x, y: landmarks[0].y },
               canvas: { x: canvasLandmarks[0].x, y: canvasLandmarks[0].y },
-              handedness,
             });
           }
 
-          // Use enhanced drawing that matches backend visualization
-          drawEnhancedHandLandmarks(ctx, canvasLandmarks, {
-            color: handedness === "Left" ? "#00FF00" : "#FF0000",
-            lineWidth: 3, // Slightly thicker for better visibility
-            showLandmarkIds: false, // Set to true for debugging
-            showFingerColors: true,
-            handLabel: handedness,
+          // Draw face landmarks with enhanced visualization
+          drawFaceLandmarks(ctx, canvasLandmarks, {
+            color: "#00BFFF", // Deep sky blue for face landmarks
+            lineWidth: 2,
+            showLandmarkIds: false,
+          });
+
+          // Draw face connections
+          drawFaceConnectors(ctx, canvasLandmarks, FACE_CONNECTIONS, {
+            color: "#FFD700", // Gold for face connections
+            lineWidth: 1,
           });
         });
 
         // Call onResults callback if provided
         if (onResults) {
-          onResults({ landmarks: handResults });
-        }
-
-        // Call onPredictionRequest callback if provided
-        if (onPredictionRequest) {
-          onPredictionRequest(
-            { landmarks: handResults },
-            canvas.width,
-            canvas.height
-          );
+          onResults({ landmarks: faceResults });
         }
       }
 
       ctx.restore();
-    }, [isActive, videoRef, canvasRef, onResults, onPredictionRequest]);
+    }, [isActive, videoRef, canvasRef, onResults]);
 
     // Start/stop processing loop
     useEffect(() => {
@@ -288,7 +251,7 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = memo(
           cancelAnimationFrame(animationFrameRef.current);
         }
         isInitializedRef.current = false;
-        handLandmarkerRef.current = null;
+        faceLandmarkerRef.current = null;
       };
     }, []);
 
@@ -297,6 +260,6 @@ const MediaPipeHandLandmarker: React.FC<MediaPipeHandLandmarkerProps> = memo(
   }
 );
 
-MediaPipeHandLandmarker.displayName = "MediaPipeHandLandmarker";
+MediaPipeFaceLandmarker.displayName = "MediaPipeFaceLandmarker";
 
-export default MediaPipeHandLandmarker;
+export default MediaPipeFaceLandmarker;

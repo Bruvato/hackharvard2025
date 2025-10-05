@@ -1,4 +1,4 @@
-// Drawing utilities for MediaPipe hand landmarks
+// Drawing utilities for MediaPipe hand and face landmarks
 // Based on MediaPipe's drawing utilities and backend visualization logic
 
 export interface Point {
@@ -15,6 +15,10 @@ export interface EnhancedDrawingOptions extends DrawingOptions {
   showLandmarkIds?: boolean;
   showFingerColors?: boolean;
   handLabel?: "Left" | "Right";
+}
+
+export interface FaceDrawingOptions extends DrawingOptions {
+  showLandmarkIds?: boolean;
 }
 
 // Finger-specific colors (matches backend logic)
@@ -288,4 +292,185 @@ export function createLandmarkVisualizationCanvas(
   ctx.fillText(`${handLabel || "Hand"} Landmarks`, width / 2, 20);
 
   return canvas;
+}
+
+// =======================
+// Face Landmark Drawing Utilities
+// =======================
+
+// Face mesh connections (simplified key connections for visualization)
+export const FACE_CONNECTIONS = [
+  // Face oval
+  [10, 338],
+  [338, 297],
+  [297, 332],
+  [332, 284],
+  [284, 251],
+  [251, 389],
+  [389, 356],
+  [356, 454],
+  [454, 323],
+  [323, 361],
+  [361, 288],
+  [288, 397],
+  [397, 365],
+  [365, 379],
+  [379, 378],
+  [378, 400],
+  [400, 377],
+  [377, 152],
+  [152, 148],
+  [148, 176],
+  [176, 149],
+  [149, 150],
+  [150, 136],
+  [136, 172],
+  [172, 58],
+  [58, 132],
+  [132, 93],
+  [93, 234],
+  [234, 127],
+  [127, 162],
+  [162, 21],
+  [21, 54],
+  [54, 103],
+  [103, 67],
+  [67, 109],
+  [109, 10],
+  // Left eye
+  [33, 246],
+  [246, 161],
+  [161, 160],
+  [160, 159],
+  [159, 158],
+  [158, 157],
+  [157, 173],
+  [173, 133],
+  [133, 155],
+  [155, 154],
+  [154, 153],
+  [153, 145],
+  [145, 144],
+  [144, 163],
+  [163, 7],
+  // Right eye
+  [263, 466],
+  [466, 388],
+  [388, 387],
+  [387, 386],
+  [386, 385],
+  [385, 384],
+  [384, 398],
+  [398, 362],
+  [362, 382],
+  [382, 381],
+  [381, 380],
+  [380, 374],
+  [374, 373],
+  [373, 390],
+  [390, 249],
+  // Lips outer
+  [61, 146],
+  [146, 91],
+  [91, 181],
+  [181, 84],
+  [84, 17],
+  [17, 314],
+  [314, 405],
+  [405, 321],
+  [321, 375],
+  [375, 291],
+  [291, 61],
+  // Lips inner
+  [78, 95],
+  [95, 88],
+  [88, 178],
+  [178, 87],
+  [87, 14],
+  [14, 317],
+  [317, 402],
+  [402, 318],
+  [318, 324],
+  [324, 308],
+  [308, 78],
+  // Nose
+  [1, 4],
+  [4, 5],
+  [5, 195],
+  [195, 197],
+  [197, 2],
+];
+
+/**
+ * Draw face landmarks
+ */
+export function drawFaceLandmarks(
+  ctx: CanvasRenderingContext2D,
+  landmarks: Point[],
+  options: FaceDrawingOptions
+) {
+  const { color, lineWidth, showLandmarkIds = false } = options;
+
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+
+  landmarks.forEach((landmark, index) => {
+    // Draw circle for landmark
+    ctx.beginPath();
+    ctx.arc(landmark.x, landmark.y, lineWidth * 1.5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    // Add landmark ID as text if requested
+    if (showLandmarkIds) {
+      ctx.fillStyle = "white";
+      ctx.font = "bold 6px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      // Add background for text readability
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.fillRect(landmark.x - 8, landmark.y - 8, 16, 8);
+
+      // Add text
+      ctx.fillStyle = "black";
+      ctx.fillText(index.toString(), landmark.x, landmark.y - 4);
+    }
+  });
+
+  ctx.restore();
+}
+
+/**
+ * Draw face connectors
+ */
+export function drawFaceConnectors(
+  ctx: CanvasRenderingContext2D,
+  landmarks: Point[],
+  connections: number[][],
+  options: DrawingOptions
+) {
+  const { color, lineWidth } = options;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  connections.forEach(([startIdx, endIdx]) => {
+    const startPoint = landmarks[startIdx];
+    const endPoint = landmarks[endIdx];
+
+    if (startPoint && endPoint) {
+      ctx.beginPath();
+      ctx.moveTo(startPoint.x, startPoint.y);
+      ctx.lineTo(endPoint.x, endPoint.y);
+      ctx.stroke();
+    }
+  });
+
+  ctx.restore();
 }

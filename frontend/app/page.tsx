@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, memo } from "react";
 import {
   Camera,
   Type,
@@ -12,6 +12,7 @@ import {
   Volume2,
   Wifi,
   WifiOff,
+  Trash2,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
@@ -22,6 +23,7 @@ import {
 } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import { Textarea } from "../components/ui/textarea";
 import {
   Tabs,
   TabsContent,
@@ -30,9 +32,11 @@ import {
 } from "../components/ui/tabs";
 import { Toaster } from "../components/ui/sonner";
 import TextToSpeech from "../components/TextToSpeech";
+import ElevenLabsTextToSpeech from "../components/ElevenLabsTextToSpeech";
 import { useSignLanguageRecognition } from "../hooks/useSignLanguageRecognition";
 import { useASLPrediction } from "../hooks/useASLPrediction";
 import MediaPipeHandLandmarker from "../components/MediaPipeHandLandmarker";
+import MediaPipeFaceLandmarker from "../components/MediaPipeFaceLandmarker";
 import PredictionDisplay from "../components/PredictionDisplay";
 
 interface TranslationEntry {
@@ -42,11 +46,12 @@ interface TranslationEntry {
   timestamp: Date;
 }
 
-export default function App() {
+const App = memo(function App() {
   const [translations, setTranslations] = useState<TranslationEntry[]>([]);
   const [currentText, setCurrentText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [showHandLandmarks, setShowHandLandmarks] = useState(true);
+  const [showFaceLandmarks, setShowFaceLandmarks] = useState(true);
   const [cameraState, setCameraState] = useState<{
     isActive: boolean;
     hasPermission: boolean;
@@ -61,6 +66,7 @@ export default function App() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const faceCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number | undefined>(undefined);
 
@@ -323,12 +329,7 @@ export default function App() {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [
-    isRecording,
-    cameraState.isActive,
-    isBackendAvailable,
-    processVideoFrame,
-  ]);
+  }, [isRecording, cameraState.isActive, isBackendAvailable, processVideoFrame]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -376,6 +377,14 @@ export default function App() {
     setCurrentText("");
   }, []);
 
+  const clearTranslation = useCallback(() => {
+    setCurrentText("");
+  }, []);
+
+  const appendToTranslation = useCallback((letter: string) => {
+    setCurrentText((prev) => prev + letter);
+  }, []);
+
   // Handle MediaPipe hand landmark results
   const handleHandResults = useCallback((results: any) => {
     // You can add additional processing here if needed
@@ -385,6 +394,16 @@ export default function App() {
       console.log("Hand results:", results);
     }
   }, []);
+
+  // Handle new predictions and append to translation
+  useEffect(() => {
+    if (prediction && prediction.success && prediction.predicted_letter) {
+      // Only append if the prediction has high confidence
+      if (prediction.confidence >= 0.6) {
+        appendToTranslation(prediction.predicted_letter);
+      }
+    }
+  }, [prediction, appendToTranslation]);
 
   return (
     <div
@@ -423,321 +442,310 @@ export default function App() {
           </p>
         </header>
 
-        {/* Main Content */}
-        <Tabs defaultValue="translator" className="space-y-6">
-          <TabsList
-            className="grid w-full grid-cols-3 max-w-md mx-auto bg-white border border-gray-200 rounded-lg p-2"
-            style={{
-              fontFamily: "system-ui, -apple-system, sans-serif",
-            }}
-          >
-            <TabsTrigger
-              value="translator"
-              className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold"
-              style={{
-                fontFamily: "system-ui, -apple-system, sans-serif",
-              }}
-            >
-              <Camera className="h-6 w-6" />
-              Translator
-            </TabsTrigger>
-            <TabsTrigger
-              value="history"
-              className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold"
-              style={{
-                fontFamily: "system-ui, -apple-system, sans-serif",
-              }}
-            >
-              <Type className="h-6 w-6" />
-              History
-            </TabsTrigger>
-            <TabsTrigger
-              value="settings"
-              className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold"
-              style={{
-                fontFamily: "system-ui, -apple-system, sans-serif",
-              }}
-            >
-              <Settings className="h-6 w-6" />
-              Settings
-            </TabsTrigger>
-          </TabsList>
+        {/* Main Content - Google Translate Style Layout */}
+        <div className="space-y-6">
+          {/* Top Section: Camera Input (Left) and Translation Output (Right) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:items-stretch">
+            {/* Left Side: Camera Input */}
+            <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
+              <CardHeader>
+                <CardTitle
+                  className="flex items-center gap-2 text-xl font-semibold text-gray-900"
+                  style={{
+                    fontFamily: "system-ui, -apple-system, sans-serif",
+                  }}
+                >
+                  <Camera className="h-5 w-5" />
+                  Sign Language Input
+                  {cameraState.isActive && (
+                    <Badge
+                      variant="secondary"
+                      className="bg-green-100 text-green-800"
+                    >
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Active
+                    </Badge>
+                  )}
+                  {isRecording && (
+                    <Badge variant="destructive" className="animate-pulse">
+                      Recording
+                    </Badge>
+                  )}
+                  {isBackendAvailable ? (
+                    <Badge
+                      variant="secondary"
+                      className="bg-blue-100 text-blue-800"
+                    >
+                      <Wifi className="h-3 w-3 mr-1" />
+                      Connected
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant="destructive"
+                      className="bg-red-100 text-red-800"
+                    >
+                      <WifiOff className="h-3 w-3 mr-1" />
+                      Offline
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* Error Messages */}
+                  {cameraState.error && (
+                    <Alert className="border-red-200 bg-red-50">
+                      <AlertCircle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="text-red-800">
+                        {cameraState.error}
+                      </AlertDescription>
+                    </Alert>
+                  )}
 
-          {/* Translator Tab */}
-          <TabsContent value="translator" className="space-y-6">
-            <div className="grid lg:grid-cols-2 gap-6 lg:items-stretch">
-              {/* Camera Section */}
-              <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
-                <CardHeader>
-                  <CardTitle
-                    className="flex items-center gap-2 text-xl font-semibold text-gray-900"
-                    style={{
-                      fontFamily: "system-ui, -apple-system, sans-serif",
-                    }}
-                  >
-                    <Camera className="h-5 w-5" />
-                    Camera Feed
-                    {cameraState.isActive && (
-                      <Badge
-                        variant="secondary"
-                        className="bg-green-100 text-green-800"
-                      >
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Active
-                      </Badge>
-                    )}
-                    {isRecording && (
-                      <Badge variant="destructive" className="animate-pulse">
-                        Recording
-                      </Badge>
-                    )}
-                    {isBackendAvailable ? (
-                      <Badge
-                        variant="secondary"
-                        className="bg-blue-100 text-blue-800"
-                      >
-                        <Wifi className="h-3 w-3 mr-1" />
-                        Backend Connected
-                      </Badge>
-                    ) : (
-                      <Badge
-                        variant="destructive"
-                        className="bg-red-100 text-red-800"
-                      >
-                        <WifiOff className="h-3 w-3 mr-1" />
-                        Backend Offline
-                      </Badge>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {/* Camera Error */}
-                    {cameraState.error && (
-                      <Alert className="border-red-200 bg-red-50">
-                        <AlertCircle className="h-4 w-4 text-red-600" />
-                        <AlertDescription className="text-red-800">
-                          {cameraState.error}
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                  {recognitionError && (
+                    <Alert className="border-orange-200 bg-orange-50">
+                      <AlertCircle className="h-4 w-4 text-orange-600" />
+                      <AlertDescription className="text-orange-800">
+                        Recognition Error: {recognitionError}
+                      </AlertDescription>
+                    </Alert>
+                  )}
 
-                    {/* Backend Error */}
-                    {recognitionError && (
-                      <Alert className="border-orange-200 bg-orange-50">
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                        <AlertDescription className="text-orange-800">
-                          Recognition Error: {recognitionError}
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                  {predictionError && (
+                    <Alert className="border-purple-200 bg-purple-50">
+                      <AlertCircle className="h-4 w-4 text-purple-600" />
+                      <AlertDescription className="text-purple-800">
+                        Prediction Error: {predictionError}
+                      </AlertDescription>
+                    </Alert>
+                  )}
 
-                    {/* Prediction Error */}
-                    {predictionError && (
-                      <Alert className="border-purple-200 bg-purple-50">
-                        <AlertCircle className="h-4 w-4 text-purple-600" />
-                        <AlertDescription className="text-purple-800">
-                          Prediction Error: {predictionError}
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                  {!isBackendAvailable && (
+                    <Alert className="border-yellow-200 bg-yellow-50">
+                      <WifiOff className="h-4 w-4 text-yellow-600" />
+                      <AlertDescription className="text-yellow-800">
+                        Backend server is offline. Please start the backend
+                        server to enable sign language recognition.
+                      </AlertDescription>
+                    </Alert>
+                  )}
 
-                    {/* Backend Offline Warning */}
-                    {!isBackendAvailable && (
-                      <Alert className="border-yellow-200 bg-yellow-50">
-                        <WifiOff className="h-4 w-4 text-yellow-600" />
-                        <AlertDescription className="text-yellow-800">
-                          Backend server is offline. Please start the backend
-                          server to enable sign language recognition.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-
-                    {/* Camera Feed */}
-                    <div className="relative bg-black rounded-lg overflow-hidden aspect-video border border-gray-600">
-                      {/* Always render video element for ref access */}
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-contain"
-                        style={{
-                          display: cameraState.isActive ? "block" : "none",
-                        }}
-                      />
-                      <canvas
-                        ref={canvasRef}
-                        className="absolute top-0 left-0 pointer-events-none"
-                        style={{
-                          display:
-                            showHandLandmarks && cameraState.isActive
-                              ? "block"
-                              : "none",
-                          zIndex: 10,
-                          width: "100%",
-                          height: "100%",
-                        }}
-                      />
-
-                      {/* Loading overlay */}
-                      {cameraState.isLoading && (
-                        <div className="absolute inset-0 w-full h-full flex items-center justify-center text-white bg-black bg-opacity-90">
-                          <div className="text-center">
-                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                            <p
-                              className="text-sm font-medium"
-                              style={{
-                                fontFamily:
-                                  "system-ui, -apple-system, sans-serif",
-                              }}
-                            >
-                              Initializing camera...
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Placeholder when camera not active */}
-                      {!cameraState.isActive && !cameraState.isLoading && (
-                        <div className="w-full h-full flex items-center justify-center text-gray-300">
-                          <div className="text-center">
-                            <Camera className="h-16 w-16 mx-auto mb-4 opacity-60 text-white" />
-                            <h3
-                              className="text-xl mb-2 font-semibold text-white"
-                              style={{
-                                fontFamily:
-                                  "system-ui, -apple-system, sans-serif",
-                              }}
-                            >
-                              Camera Ready
-                            </h3>
-                            <p
-                              className="text-sm opacity-80 text-gray-300"
-                              style={{
-                                fontFamily:
-                                  "system-ui, -apple-system, sans-serif",
-                              }}
-                            >
-                              Click "Start Recognition" to activate camera
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* MediaPipe Hand Landmarker */}
-                    <MediaPipeHandLandmarker
-                      videoRef={videoRef}
-                      canvasRef={canvasRef}
-                      isActive={cameraState.isActive && showHandLandmarks}
-                      onResults={handleHandResults}
-                      onPredictionRequest={processHandResults}
+                  {/* Camera Feed */}
+                  <div className="relative bg-black rounded-lg overflow-hidden aspect-video border border-gray-600">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-contain"
+                      style={{
+                        display: cameraState.isActive ? "block" : "none",
+                      }}
+                    />
+                    <canvas
+                      ref={canvasRef}
+                      className="absolute top-0 left-0 pointer-events-none"
+                      style={{
+                        display:
+                          showHandLandmarks && cameraState.isActive
+                            ? "block"
+                            : "none",
+                        zIndex: 10,
+                        width: "100%",
+                        height: "100%",
+                      }}
+                    />
+                    <canvas
+                      ref={faceCanvasRef}
+                      className="absolute top-0 left-0 pointer-events-none"
+                      style={{
+                        display:
+                          showFaceLandmarks && cameraState.isActive
+                            ? "block"
+                            : "none",
+                        zIndex: 11,
+                        width: "100%",
+                        height: "100%",
+                      }}
                     />
 
-                    {/* Controls */}
-                    <div className="flex flex-col gap-3">
-                      <div className="flex justify-center">
+                    {/* Loading overlay */}
+                    {cameraState.isLoading && (
+                      <div className="absolute inset-0 w-full h-full flex items-center justify-center text-white bg-black bg-opacity-90">
+                        <div className="text-center">
+                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+                          <p
+                            className="text-sm font-medium"
+                            style={{
+                              fontFamily:
+                                "system-ui, -apple-system, sans-serif",
+                            }}
+                          >
+                            Initializing camera...
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Placeholder when camera not active */}
+                    {!cameraState.isActive && !cameraState.isLoading && (
+                      <div className="w-full h-full flex items-center justify-center text-gray-300">
+                        <div className="text-center">
+                          <Camera className="h-16 w-16 mx-auto mb-4 opacity-60 text-white" />
+                          <h3
+                            className="text-xl mb-2 font-semibold text-white"
+                            style={{
+                              fontFamily:
+                                "system-ui, -apple-system, sans-serif",
+                            }}
+                          >
+                            Camera Ready
+                          </h3>
+                          <p
+                            className="text-sm opacity-80 text-gray-300"
+                            style={{
+                              fontFamily:
+                                "system-ui, -apple-system, sans-serif",
+                            }}
+                          >
+                            Click "Start Recognition" to activate camera
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* MediaPipe Hand Landmarker */}
+                  <MediaPipeHandLandmarker
+                    videoRef={videoRef}
+                    canvasRef={canvasRef}
+                    isActive={cameraState.isActive && showHandLandmarks}
+                    onResults={handleHandResults}
+                    onPredictionRequest={processHandResults}
+                  />
+
+                  {/* MediaPipe Face Landmarker */}
+                  <MediaPipeFaceLandmarker
+                    videoRef={videoRef}
+                    canvasRef={faceCanvasRef}
+                    isActive={cameraState.isActive && showFaceLandmarks}
+                  />
+
+                  {/* Controls */}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex justify-center">
+                      <Button
+                        onClick={toggleRecording}
+                        size="lg"
+                        disabled={cameraState.isLoading}
+                        variant={isRecording ? "destructive" : "default"}
+                        className={`px-8 font-medium rounded-lg ${
+                          isRecording
+                            ? "bg-red-600 hover:bg-red-700 text-white border-2 border-red-600 shadow-lg"
+                            : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-lg"
+                        }`}
+                        style={{
+                          fontFamily: "system-ui, -apple-system, sans-serif",
+                          minHeight: "48px",
+                          minWidth: "200px",
+                          color: isRecording ? "white" : "black",
+                          backgroundColor: isRecording ? "#dc2626" : "white",
+                          borderColor: isRecording ? "#dc2626" : "#d1d5db",
+                          zIndex: 10,
+                          position: "relative",
+                        }}
+                      >
+                        {isRecording ? (
+                          <>
+                            <Square className="h-5 w-5 mr-2" />
+                            Stop Recognition
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-5 w-5 mr-2" />
+                            Start Recognition
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Landmarks Toggle */}
+                    {cameraState.isActive && (
+                      <div className="flex justify-center gap-2">
                         <Button
-                          onClick={toggleRecording}
-                          size="lg"
-                          disabled={cameraState.isLoading}
-                          variant={isRecording ? "destructive" : "default"}
-                          className={`px-8 font-medium rounded-lg ${
-                            isRecording
-                              ? "bg-red-600 hover:bg-red-700 text-white border-2 border-red-600 shadow-lg"
-                              : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-lg"
-                          }`}
-                          style={{
-                            fontFamily: "system-ui, -apple-system, sans-serif",
-                            minHeight: "48px",
-                            minWidth: "200px",
-                            color: isRecording ? "white" : "black",
-                            backgroundColor: isRecording ? "#dc2626" : "white",
-                            borderColor: isRecording ? "#dc2626" : "#d1d5db",
-                            zIndex: 10,
-                            position: "relative",
-                          }}
+                          onClick={() =>
+                            setShowHandLandmarks(!showHandLandmarks)
+                          }
+                          size="sm"
+                          variant="secondary"
+                          className="px-4 py-2 text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-gray-900 shadow-sm"
                         >
-                          {isRecording ? (
-                            <>
-                              <Square className="h-5 w-5 mr-2" />
-                              Stop Recognition
-                            </>
-                          ) : (
-                            <>
-                              <Play className="h-5 w-5 mr-2" />
-                              Start Recognition
-                            </>
-                          )}
+                          {showHandLandmarks ? "Hide" : "Show"} Hand Landmarks
+                        </Button>
+                        <Button
+                          onClick={() =>
+                            setShowFaceLandmarks(!showFaceLandmarks)
+                          }
+                          size="sm"
+                          variant="secondary"
+                          className="px-4 py-2 text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-gray-900 shadow-sm"
+                        >
+                          {showFaceLandmarks ? "Hide" : "Show"} Face Landmarks
                         </Button>
                       </div>
-
-                      {/* Hand Landmarks Toggle */}
-                      {cameraState.isActive && (
-                        <div className="flex justify-center">
-                          <Button
-                            onClick={() =>
-                              setShowHandLandmarks(!showHandLandmarks)
-                            }
-                            size="sm"
-                            variant="outline"
-                            className="px-4 py-2 text-sm"
-                          >
-                            {showHandLandmarks ? "Hide" : "Show"} Hand Landmarks
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Status */}
-                    <div className="text-center text-sm text-gray-600">
-                      {cameraState.isLoading ? (
-                        <p
-                          style={{
-                            fontFamily: "system-ui, -apple-system, sans-serif",
-                          }}
-                        >
-                          Initializing camera...
-                        </p>
-                      ) : isRecording ? (
-                        <p
-                          className="flex items-center justify-center gap-2"
-                          style={{
-                            fontFamily: "system-ui, -apple-system, sans-serif",
-                          }}
-                        >
-                          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse inline-block" />
-                          {isBackendAvailable
-                            ? "Processing ASL letter predictions..."
-                            : "Camera active, but backend offline"}
-                        </p>
-                      ) : cameraState.isActive ? (
-                        <p
-                          style={{
-                            fontFamily: "system-ui, -apple-system, sans-serif",
-                          }}
-                        >
-                          Camera ready.{" "}
-                          {isBackendAvailable
-                            ? 'Click "Start Recognition" to begin ASL letter prediction.'
-                            : "Backend offline - start backend server first."}
-                        </p>
-                      ) : (
-                        <p
-                          style={{
-                            fontFamily: "system-ui, -apple-system, sans-serif",
-                          }}
-                        >
-                          Click "Start Recognition" to activate camera and begin
-                          ASL letter prediction.
-                        </p>
-                      )}
-                    </div>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
 
+                  {/* Status */}
+                  <div className="text-center text-sm text-gray-600">
+                    {cameraState.isLoading ? (
+                      <p
+                        style={{
+                          fontFamily: "system-ui, -apple-system, sans-serif",
+                        }}
+                      >
+                        Initializing camera...
+                      </p>
+                    ) : isRecording ? (
+                      <p
+                        className="flex items-center justify-center gap-2"
+                        style={{
+                          fontFamily: "system-ui, -apple-system, sans-serif",
+                        }}
+                      >
+                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse inline-block" />
+                        {isBackendAvailable
+                          ? "Processing ASL letter predictions..."
+                          : "Camera active, but backend offline"}
+                      </p>
+                    ) : cameraState.isActive ? (
+                      <p
+                        style={{
+                          fontFamily: "system-ui, -apple-system, sans-serif",
+                        }}
+                      >
+                        Camera ready.{" "}
+                        {isBackendAvailable
+                          ? 'Click "Start Recognition" to begin ASL letter prediction.'
+                          : "Backend offline - start backend server first."}
+                      </p>
+                    ) : (
+                      <p
+                        style={{
+                          fontFamily: "system-ui, -apple-system, sans-serif",
+                        }}
+                      >
+                        Click "Start Recognition" to activate camera and begin
+                        ASL letter prediction.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Right Side: Translation Output */}
+            <div className="space-y-4 h-full flex flex-col lg:min-h-[600px]">
               {/* ASL Letter Prediction */}
               <PredictionDisplay
                 prediction={prediction}
@@ -746,81 +754,8 @@ export default function App() {
                 className="mb-4"
               />
 
-              {/* Translation Output */}
-              <div className="space-y-4 h-full flex flex-col">
-                {/* Current Translation */}
-                <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
-                  <CardHeader>
-                    <CardTitle
-                      className="flex items-center gap-2 text-xl font-semibold text-gray-900"
-                      style={{
-                        fontFamily: "system-ui, -apple-system, sans-serif",
-                      }}
-                    >
-                      <Type className="h-5 w-5" />
-                      Current Translation
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="min-h-[120px] p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      {currentText ? (
-                        <div className="space-y-2">
-                          <p
-                            className="text-lg text-gray-900 leading-relaxed font-medium"
-                            style={{
-                              fontFamily:
-                                "system-ui, -apple-system, sans-serif",
-                            }}
-                          >
-                            {currentText}
-                          </p>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              navigator.clipboard.writeText(currentText)
-                            }
-                          >
-                            Copy Text
-                          </Button>
-                        </div>
-                      ) : (
-                        <p
-                          className="text-gray-500 italic text-center py-4 font-medium"
-                          style={{
-                            fontFamily: "system-ui, -apple-system, sans-serif",
-                          }}
-                        >
-                          Start recognition to see translations appear here...
-                        </p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Text-to-Speech Section */}
-                <Card className="bg-white border border-gray-200 shadow-sm rounded-lg flex-1">
-                  <CardHeader>
-                    <CardTitle
-                      className="flex items-center gap-2 text-xl font-semibold text-gray-900"
-                      style={{
-                        fontFamily: "system-ui, -apple-system, sans-serif",
-                      }}
-                    >
-                      <Volume2 className="h-5 w-5" />
-                      Text-to-Speech
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <TextToSpeech text={currentText} />
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* Translation History - Full Width at Bottom */}
-            <div className="mt-6">
-              <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
+              {/* Current Translation */}
+              <Card className="bg-white border border-gray-200 shadow-sm rounded-lg flex-1">
                 <CardHeader>
                   <CardTitle
                     className="flex items-center justify-between text-xl font-semibold text-gray-900"
@@ -830,124 +765,123 @@ export default function App() {
                   >
                     <span className="flex items-center gap-2">
                       <Type className="h-5 w-5" />
-                      Translation History ({translations.length})
+                      Translation Output
                     </span>
-                    {translations.length > 0 && (
+                    {currentText && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={clearHistory}
+                        onClick={clearTranslation}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
+                        <Trash2 className="h-4 w-4 mr-1" />
                         Clear
                       </Button>
                     )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {translations.slice(0, 10).map((translation) => (
-                      <div
-                        key={translation.id}
-                        className="p-3 bg-gray-50 rounded-lg border border-gray-200"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span
-                            className="font-medium text-gray-900"
-                            style={{
-                              fontFamily:
-                                "system-ui, -apple-system, sans-serif",
-                            }}
-                          >
-                            {translation.text}
-                          </span>
-                          <Badge variant="outline">
-                            {Math.round(translation.confidence * 100)}%
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {translation.timestamp.toLocaleTimeString()}
-                        </p>
+                  <div className="space-y-4">
+                    <Textarea
+                      value={currentText}
+                      onChange={(e) => setCurrentText(e.target.value)}
+                      placeholder="Start recognition to see predicted letters appear here... You can also type directly in this textarea."
+                      className="min-h-[200px] resize-none text-lg leading-relaxed bg-white text-gray-900 border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                      style={{
+                        fontFamily: "system-ui, -apple-system, sans-serif",
+                        color: "#111827",
+                      }}
+                    />
+                    {currentText && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            navigator.clipboard.writeText(currentText)
+                          }
+                          className="border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                        >
+                          Copy Text
+                        </Button>
+                        <ElevenLabsTextToSpeech text={currentText} />
                       </div>
-                    ))}
-                    {translations.length === 0 && (
-                      <p
-                        className="text-gray-500 italic text-center py-4 font-medium"
-                        style={{
-                          fontFamily: "system-ui, -apple-system, sans-serif",
-                        }}
-                      >
-                        No translations yet. Start recognition to see results.
-                      </p>
                     )}
                   </div>
                 </CardContent>
               </Card>
             </div>
-          </TabsContent>
+          </div>
 
-          {/* History Tab */}
-          <TabsContent value="history">
-            <Card>
-              <CardHeader>
-                <CardTitle>Translation History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {translations.map((translation) => (
-                    <div
-                      key={translation.id}
-                      className="p-4 bg-white rounded-lg border border-gray-200"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-lg font-medium">
-                          {translation.text}
+          {/* Bottom Section: Translation History */}
+          <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
+            <CardHeader>
+              <CardTitle
+                className="flex items-center justify-between text-xl font-semibold text-gray-900"
+                style={{
+                  fontFamily: "system-ui, -apple-system, sans-serif",
+                }}
+              >
+                <span className="flex items-center gap-2">
+                  <Type className="h-5 w-5" />
+                  Translation History ({translations.length})
+                </span>
+                {translations.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={clearHistory}>
+                    Clear History
+                  </Button>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+                {translations.slice(0, 10).map((translation) => (
+                  <div
+                    key={translation.id}
+                    className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className="font-medium text-gray-900 text-lg"
+                        style={{
+                          fontFamily: "system-ui, -apple-system, sans-serif",
+                        }}
+                      >
+                        {translation.text}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-sm">
+                          {Math.round(translation.confidence * 100)}%
+                        </Badge>
+                        <span className="text-sm text-gray-500">
+                          {translation.timestamp.toLocaleTimeString()}
                         </span>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline">
-                            {Math.round(translation.confidence * 100)}%
-                          </Badge>
-                          <span className="text-sm text-gray-500">
-                            {translation.timestamp.toLocaleString()}
-                          </span>
-                        </div>
                       </div>
                     </div>
-                  ))}
-                  {translations.length === 0 && (
-                    <p className="text-gray-500 italic text-center py-8">
-                      No translation history yet.
+                  </div>
+                ))}
+                {translations.length === 0 && (
+                  <div className="text-center py-8">
+                    <Type className="h-12 w-12 mx-auto mb-4 opacity-40 text-gray-400" />
+                    <p
+                      className="text-gray-500 italic font-medium"
+                      style={{
+                        fontFamily: "system-ui, -apple-system, sans-serif",
+                      }}
+                    >
+                      No translations yet. Start recognition to see results.
                     </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Settings Tab */}
-          <TabsContent value="settings">
-            <Card>
-              <CardHeader>
-                <CardTitle>Settings</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="text-sm text-gray-600">
-                  <p className="mb-2">Sign Language Translator Settings:</p>
-                  <ul className="space-y-1 text-xs text-gray-500">
-                    <li>• Camera resolution: 1280x720 (adjustable)</li>
-                    <li>• Processing delay: ~50ms per frame</li>
-                    <li>• Memory usage: Optimized for real-time processing</li>
-                    <li>
-                      • Browser compatibility: Chrome, Firefox, Safari, Edge
-                    </li>
-                  </ul>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Toaster />
     </div>
   );
-}
+});
+
+export default App;
