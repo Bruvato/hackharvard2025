@@ -38,17 +38,13 @@ export default function App() {
 
   // Simple camera initialization
   const initializeCamera = useCallback(async () => {
-    console.log('=== STARTING CAMERA INITIALIZATION ===');
-    
     if (cameraState.isActive || cameraState.isLoading) {
-      console.log('Camera already active or loading');
       return;
     }
     
     setCameraState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      console.log('Requesting camera access...');
       
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -59,7 +55,6 @@ export default function App() {
         audio: false
       });
       
-      console.log('Camera stream obtained:', stream);
       streamRef.current = stream;
       
       // Get video element (should always be available now)
@@ -68,7 +63,6 @@ export default function App() {
         throw new Error('Video element not found');
       }
       
-      console.log('Video element found, setting source...');
       videoElement.srcObject = stream;
       
       // Force video to be visible
@@ -78,7 +72,6 @@ export default function App() {
       // Wait for video to load
       await new Promise<void>((resolve, reject) => {
         const onLoadedMetadata = () => {
-          console.log('Video metadata loaded');
           videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
           videoElement.removeEventListener('error', onError);
           resolve();
@@ -105,7 +98,6 @@ export default function App() {
         }, 5000);
       });
       
-      console.log('Camera initialized successfully');
       
       // Wait for video to actually load before setting state
       let retryCount = 0;
@@ -113,7 +105,6 @@ export default function App() {
       
       const checkVideoReady = () => {
         if (videoRef.current && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
-          console.log('Video is actually ready, setting camera state');
           setCameraState({
             isActive: true,
             hasPermission: true,
@@ -132,7 +123,6 @@ export default function App() {
           // Automatically start recognition when camera is ready
           setIsRecording(true);
         } else if (retryCount < maxRetries) {
-          console.log('Video not ready yet, retrying...', retryCount);
           retryCount++;
           setTimeout(checkVideoReady, 100);
         } else {
@@ -177,13 +167,11 @@ export default function App() {
 
   // Stop camera
   const stopCamera = useCallback(() => {
-    console.log('Stopping camera...');
     
     // Stop all media tracks
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
         track.stop();
-        console.log('Stopped track:', track.kind);
       });
       streamRef.current = null;
     }
@@ -209,7 +197,6 @@ export default function App() {
     });
     setIsRecording(false);
     
-    console.log('Camera stopped successfully');
   }, []);
 
   // Process video frames for gesture recognition
@@ -276,7 +263,6 @@ export default function App() {
   // Start/stop frame processing
   useEffect(() => {
     if (isRecording && cameraState.isActive) {
-      console.log('Starting frame processing...');
       const process = () => {
         processFrame();
         animationRef.current = requestAnimationFrame(process);
@@ -299,11 +285,9 @@ export default function App() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log('Component unmounting, cleaning up camera...');
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => {
           track.stop();
-          console.log('Cleaned up track:', track.kind);
         });
         streamRef.current = null;
       }
@@ -319,21 +303,17 @@ export default function App() {
   }, []);
 
   const toggleRecording = () => {
-    console.log('Toggle recording clicked, current isRecording:', isRecording);
     
     if (!cameraState.isActive) {
-      console.log('Initializing camera...');
       initializeCamera();
       return;
     }
     
     const newRecordingState = !isRecording;
-    console.log('Setting isRecording to:', newRecordingState);
     setIsRecording(newRecordingState);
     
     if (!newRecordingState) {
       // Stop recording - also stop the camera
-      console.log('Stopping recording and camera...');
       setCurrentText('');
       stopCamera();
     } else {

@@ -38,10 +38,29 @@ export default function TextToSpeech({ text }: TextToSpeechProps) {
     style: 0.0,
     useSpeakerBoost: true
   });
-  // ElevenLabs API Key - Replace with your actual API key
-  const apiKey = 'YOUR_ELEVENLABS_API_KEY_HERE';
+  // ElevenLabs API Key - Get from environment variables
+  const apiKey = (import.meta as any).env?.VITE_ELEVENLABS_API_KEY || 'YOUR_ELEVENLABS_API_KEY_HERE';
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Add audio event listeners
+  React.useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleEnded = () => setIsPlaying(false);
+    const handlePause = () => setIsPlaying(false);
+    const handlePlay = () => setIsPlaying(true);
+
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('play', handlePlay);
+
+    return () => {
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('play', handlePlay);
+    };
+  }, []);
 
   const speakText = async () => {
     if (!text.trim()) {
@@ -67,7 +86,7 @@ export default function TextToSpeech({ text }: TextToSpeechProps) {
         },
         body: JSON.stringify({
           text: text,
-          model_id: 'eleven_monolingual_v1',
+          model_id: 'eleven_turbo_v2_5', // Updated to latest model
           voice_settings: {
             stability: voiceSettings.stability,
             similarity_boost: voiceSettings.similarityBoost,
@@ -78,17 +97,33 @@ export default function TextToSpeech({ text }: TextToSpeechProps) {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail?.message || `HTTP ${response.status}: ${response.statusText}`);
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail?.message || errorData.message || errorMessage;
+        } catch (e) {
+          // If response is not JSON, use the default error message
+        }
+        throw new Error(errorMessage);
       }
 
       const audioBlob = await response.blob();
+      
+      // Clean up previous audio URL to prevent memory leaks
+      if (audioRef.current?.src && audioRef.current.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+      
       const audioUrl = URL.createObjectURL(audioBlob);
       
       if (audioRef.current) {
         audioRef.current.src = audioUrl;
-        audioRef.current.play();
-        setIsPlaying(true);
+        audioRef.current.play().then(() => {
+          setIsPlaying(true);
+        }).catch((playError) => {
+          console.error('Audio play error:', playError);
+          setError('Failed to play audio. Please check your browser audio settings.');
+        });
       }
 
     } catch (err: any) {
@@ -99,13 +134,14 @@ export default function TextToSpeech({ text }: TextToSpeechProps) {
     }
   };
 
-  const stopSpeaking = () => {
+  const stopAudio = () => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      setIsPlaying(false);
     }
-    setIsPlaying(false);
   };
+
 
   const handleAudioEnd = () => {
     setIsPlaying(false);
@@ -190,7 +226,7 @@ export default function TextToSpeech({ text }: TextToSpeechProps) {
             </Button>
           ) : (
             <Button
-              onClick={stopSpeaking}
+              onClick={stopAudio}
               variant="destructive"
               size="lg"
               className="px-8"
