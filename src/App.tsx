@@ -1,12 +1,24 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Camera, Type, Settings, Play, Square, AlertCircle, CheckCircle, Volume2 } from 'lucide-react';
-import { Button } from './components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
-import { Badge } from './components/ui/badge';
-import { Alert, AlertDescription } from './components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
-import { Toaster } from './components/ui/sonner';
-import TextToSpeech from './components/TextToSpeech';
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import {
+  Camera,
+  Type,
+  Settings,
+  Play,
+  Square,
+  AlertCircle,
+  CheckCircle,
+  Volume2,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Badge } from "./components/ui/badge";
+import { Alert, AlertDescription } from "./components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Toaster } from "./components/ui/sonner";
+import TextToSpeech from "./components/TextToSpeech";
+import { useSignLanguageRecognition } from "./hooks/useSignLanguageRecognition";
 
 interface TranslationEntry {
   id: string;
@@ -17,7 +29,7 @@ interface TranslationEntry {
 
 export default function App() {
   const [translations, setTranslations] = useState<TranslationEntry[]>([]);
-  const [currentText, setCurrentText] = useState('');
+  const [currentText, setCurrentText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [cameraState, setCameraState] = useState<{
     isActive: boolean;
@@ -28,7 +40,7 @@ export default function App() {
     isActive: false,
     hasPermission: false,
     error: null,
-    isLoading: false
+    isLoading: false,
   });
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -36,235 +48,263 @@ export default function App() {
   const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number>();
 
+  // Initialize sign language recognition hook
+  const {
+    isProcessing,
+    isBackendAvailable,
+    lastResult,
+    error: recognitionError,
+    processFrame,
+    startProcessing,
+    stopProcessing,
+    getBestGesture,
+    clearResult,
+  } = useSignLanguageRecognition({
+    processingInterval: 2000, // Process every 2 seconds
+    confidenceThreshold: 0.7, // 70% confidence threshold
+    maxProcessingRate: 1, // Max 1 request per second
+  });
+
   // Simple camera initialization
   const initializeCamera = useCallback(async () => {
     if (cameraState.isActive || cameraState.isLoading) {
       return;
     }
-    
-    setCameraState(prev => ({ ...prev, isLoading: true, error: null }));
-    
+
+    setCameraState((prev) => ({ ...prev, isLoading: true, error: null }));
+
     try {
-      
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280, min: 640 },
           height: { ideal: 720, min: 480 },
-          facingMode: 'user'
+          facingMode: "user",
         },
-        audio: false
+        audio: false,
       });
-      
+
       streamRef.current = stream;
-      
+
       // Get video element (should always be available now)
       const videoElement = videoRef.current;
       if (!videoElement) {
-        throw new Error('Video element not found');
+        throw new Error("Video element not found");
       }
-      
+
       videoElement.srcObject = stream;
-      
+
       // Force video to be visible
-      videoElement.style.display = 'block';
-      videoElement.style.visibility = 'visible';
-      
+      videoElement.style.display = "block";
+      videoElement.style.visibility = "visible";
+
       // Wait for video to load
       await new Promise<void>((resolve, reject) => {
         const onLoadedMetadata = () => {
-          videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
-          videoElement.removeEventListener('error', onError);
+          videoElement.removeEventListener("loadedmetadata", onLoadedMetadata);
+          videoElement.removeEventListener("error", onError);
           resolve();
         };
-        
+
         const onError = (e: Event) => {
-          console.error('Video error:', e);
-          videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
-          videoElement.removeEventListener('error', onError);
-          reject(new Error('Video failed to load'));
+          console.error("Video error:", e);
+          videoElement.removeEventListener("loadedmetadata", onLoadedMetadata);
+          videoElement.removeEventListener("error", onError);
+          reject(new Error("Video failed to load"));
         };
-        
-        videoElement.addEventListener('loadedmetadata', onLoadedMetadata);
-        videoElement.addEventListener('error', onError);
-        
+
+        videoElement.addEventListener("loadedmetadata", onLoadedMetadata);
+        videoElement.addEventListener("error", onError);
+
         // Start playing
         videoElement.play().catch(reject);
-        
+
         // Timeout after 5 seconds
         setTimeout(() => {
-          videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
-          videoElement.removeEventListener('error', onError);
-          reject(new Error('Video load timeout'));
+          videoElement.removeEventListener("loadedmetadata", onLoadedMetadata);
+          videoElement.removeEventListener("error", onError);
+          reject(new Error("Video load timeout"));
         }, 5000);
       });
-      
-      
+
       // Wait for video to actually load before setting state
       let retryCount = 0;
       const maxRetries = 50; // 5 seconds max
-      
+
       const checkVideoReady = () => {
-        if (videoRef.current && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
+        if (
+          videoRef.current &&
+          videoRef.current.videoWidth > 0 &&
+          videoRef.current.videoHeight > 0
+        ) {
           setCameraState({
             isActive: true,
             hasPermission: true,
             error: null,
-            isLoading: false
+            isLoading: false,
           });
-          
+
           // Ensure video is visible after state update
           setTimeout(() => {
             if (videoRef.current) {
-              videoRef.current.style.display = 'block';
-              videoRef.current.style.visibility = 'visible';
+              videoRef.current.style.display = "block";
+              videoRef.current.style.visibility = "visible";
             }
           }, 100);
-          
+
           // Automatically start recognition when camera is ready
           setIsRecording(true);
         } else if (retryCount < maxRetries) {
           retryCount++;
           setTimeout(checkVideoReady, 100);
         } else {
-          console.error('Video failed to load after maximum retries');
+          console.error("Video failed to load after maximum retries");
           setCameraState({
             isActive: false,
             hasPermission: false,
-            error: 'Camera video failed to load',
-            isLoading: false
+            error: "Camera video failed to load",
+            isLoading: false,
           });
         }
       };
-      
+
       checkVideoReady();
-      
     } catch (error: any) {
-      console.error('Camera initialization failed:', error);
-      
-      let errorMessage = 'Failed to access camera';
-      if (error.name === 'NotAllowedError') {
-        errorMessage = 'Camera permission denied. Please allow camera access and try again.';
-      } else if (error.name === 'NotFoundError') {
-        errorMessage = 'No camera found. Please connect a camera and try again.';
-      } else if (error.name === 'NotSupportedError') {
-        errorMessage = 'Camera not supported. Please use a modern browser.';
-      } else if (error.name === 'NotReadableError') {
-        errorMessage = 'Camera is in use by another application.';
-      } else if (error.message.includes('Video element not found')) {
-        errorMessage = 'Video element not found. Please refresh the page and try again.';
+      console.error("Camera initialization failed:", error);
+
+      let errorMessage = "Failed to access camera";
+      if (error.name === "NotAllowedError") {
+        errorMessage =
+          "Camera permission denied. Please allow camera access and try again.";
+      } else if (error.name === "NotFoundError") {
+        errorMessage =
+          "No camera found. Please connect a camera and try again.";
+      } else if (error.name === "NotSupportedError") {
+        errorMessage = "Camera not supported. Please use a modern browser.";
+      } else if (error.name === "NotReadableError") {
+        errorMessage = "Camera is in use by another application.";
+      } else if (error.message.includes("Video element not found")) {
+        errorMessage =
+          "Video element not found. Please refresh the page and try again.";
       } else {
         errorMessage = `Camera error: ${error.message}`;
       }
-      
+
       setCameraState({
         isActive: false,
         hasPermission: false,
         error: errorMessage,
-        isLoading: false
+        isLoading: false,
       });
     }
   }, [cameraState.isActive, cameraState.isLoading]);
 
   // Stop camera
   const stopCamera = useCallback(() => {
-    
     // Stop all media tracks
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
+      streamRef.current.getTracks().forEach((track) => {
         track.stop();
       });
       streamRef.current = null;
     }
-    
+
     // Cancel any ongoing animation frames
     if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
       animationRef.current = undefined;
     }
-    
+
     // Clear video source
     if (videoRef.current) {
       videoRef.current.srcObject = null;
       videoRef.current.pause();
     }
-    
+
     // Reset states
     setCameraState({
       isActive: false,
       hasPermission: false,
       error: null,
-      isLoading: false
+      isLoading: false,
     });
     setIsRecording(false);
-    
   }, []);
 
   // Process video frames for gesture recognition
-  const processFrame = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current || !isRecording) return;
-    
+  const processVideoFrame = useCallback(async () => {
+    if (
+      !videoRef.current ||
+      !canvasRef.current ||
+      !isRecording ||
+      !isBackendAvailable
+    )
+      return;
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    
+    const ctx = canvas.getContext("2d");
+
     if (!ctx) return;
-    
+
     // Set canvas size to match video
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    
+
     // Draw current video frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    // Simulate gesture recognition (replace with real implementation)
-    if (Math.random() < 0.1) { // 10% chance per frame
-      const gestures = [
-        'Hello', 'Thank you', 'Please', 'Yes', 'No', 'Help', 'Water', 'Food',
-        'Good morning', 'Good night', 'I love you', 'Sorry', 'Welcome'
-      ];
-      
-      const gesture = gestures[Math.floor(Math.random() * gestures.length)];
-      const confidence = Math.random() * 0.3 + 0.7; // 70-100% confidence
-      
-      if (confidence > 0.7) {
-        const newTranslation: TranslationEntry = {
-          id: `${Date.now()}-${Math.random()}`,
-          text: gesture,
-          confidence,
-          timestamp: new Date()
-        };
-        
-        setTranslations(prev => [newTranslation, ...prev]);
-        setCurrentText(gesture);
-        
-        // Play sound notification
-        try {
-          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const oscillator = audioContext.createOscillator();
-          const gainNode = audioContext.createGain();
-          
-          oscillator.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          
-          oscillator.frequency.value = 800;
-          oscillator.type = 'sine';
-          gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-          
-          oscillator.start(audioContext.currentTime);
-          oscillator.stop(audioContext.currentTime + 0.2);
-        } catch (error) {
-          console.warn('Audio notification failed:', error);
+
+    // Process frame with real API
+    try {
+      const result = await processFrame(canvas);
+
+      if (result && result.gestures.length > 0) {
+        const bestGesture = getBestGesture();
+        if (bestGesture) {
+          const newTranslation: TranslationEntry = {
+            id: `${Date.now()}-${Math.random()}`,
+            text: bestGesture.translation,
+            confidence: bestGesture.confidence,
+            timestamp: new Date(),
+          };
+
+          setTranslations((prev) => [newTranslation, ...prev]);
+          setCurrentText(bestGesture.translation);
+
+          // Play sound notification
+          try {
+            const audioContext = new (window.AudioContext ||
+              (window as any).webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.frequency.value = 800;
+            oscillator.type = "sine";
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(
+              0.01,
+              audioContext.currentTime + 0.2
+            );
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+          } catch (error) {
+            console.warn("Audio notification failed:", error);
+          }
         }
       }
+    } catch (error) {
+      console.error("Frame processing failed:", error);
     }
-  }, [isRecording]);
+  }, [isRecording, isBackendAvailable, processFrame, getBestGesture]);
 
   // Start/stop frame processing
   useEffect(() => {
-    if (isRecording && cameraState.isActive) {
+    if (isRecording && cameraState.isActive && isBackendAvailable) {
       const process = () => {
-        processFrame();
+        processVideoFrame();
         animationRef.current = requestAnimationFrame(process);
       };
       animationRef.current = requestAnimationFrame(process);
@@ -274,19 +314,24 @@ export default function App() {
         animationRef.current = undefined;
       }
     }
-    
+
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [isRecording, cameraState.isActive, processFrame]);
+  }, [
+    isRecording,
+    cameraState.isActive,
+    isBackendAvailable,
+    processVideoFrame,
+  ]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => {
+        streamRef.current.getTracks().forEach((track) => {
           track.stop();
         });
         streamRef.current = null;
@@ -303,75 +348,103 @@ export default function App() {
   }, []);
 
   const toggleRecording = () => {
-    
     if (!cameraState.isActive) {
       initializeCamera();
       return;
     }
-    
+
     const newRecordingState = !isRecording;
     setIsRecording(newRecordingState);
-    
+
     if (!newRecordingState) {
       // Stop recording - also stop the camera
-      setCurrentText('');
+      setCurrentText("");
       stopCamera();
+      stopProcessing();
     } else {
       // Clear current text when starting new recording
-      setCurrentText('');
+      setCurrentText("");
+      clearResult();
     }
   };
 
   const clearHistory = useCallback(() => {
     setTranslations([]);
-    setCurrentText('');
+    setCurrentText("");
   }, []);
 
   return (
-    <div className="min-h-screen rounded-3xl mx-4 my-4" style={{
-      background: 'linear-gradient(135deg, #fce7f3 0%, #f3e8ff 25%, #e0e7ff 50%, #f0f9ff 75%, #f0fdf4 100%)'
-    }}>
+    <div
+      className="min-h-screen rounded-3xl mx-4 my-4"
+      style={{
+        background:
+          "linear-gradient(135deg, #fce7f3 0%, #f3e8ff 25%, #e0e7ff 50%, #f0f9ff 75%, #f0fdf4 100%)",
+      }}
+    >
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Header */}
         <header className="text-center mb-16">
           <div className="mb-4">
-            <p className="text-sm font-normal text-gray-600 tracking-wide">HACKHARVARD 2025</p>
+            <p className="text-sm font-normal text-gray-600 tracking-wide">
+              HACKHARVARD 2025
+            </p>
           </div>
-          <h1 className="font-bold text-gray-900 mb-6 tracking-tight" style={{ 
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            fontSize: '4rem',
-            lineHeight: '1.1',
-            fontWeight: '700'
-          }}>
+          <h1
+            className="font-bold text-gray-900 mb-6 tracking-tight"
+            style={{
+              fontFamily: "system-ui, -apple-system, sans-serif",
+              fontSize: "4rem",
+              lineHeight: "1.1",
+              fontWeight: "700",
+            }}
+          >
             HandSpeak AI
           </h1>
-          <p className="text-xl text-gray-700 font-medium mb-8" style={{ 
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
+          <p
+            className="text-xl text-gray-700 font-medium mb-8"
+            style={{
+              fontFamily: "system-ui, -apple-system, sans-serif",
+            }}
+          >
             Instant Sign Language Recognition & Translation
           </p>
         </header>
 
         {/* Main Content */}
         <Tabs defaultValue="translator" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 max-w-md mx-auto bg-white border border-gray-200 rounded-lg p-2" style={{ 
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
-            <TabsTrigger value="translator" className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold" style={{ 
-              fontFamily: 'system-ui, -apple-system, sans-serif'
-            }}>
+          <TabsList
+            className="grid w-full grid-cols-3 max-w-md mx-auto bg-white border border-gray-200 rounded-lg p-2"
+            style={{
+              fontFamily: "system-ui, -apple-system, sans-serif",
+            }}
+          >
+            <TabsTrigger
+              value="translator"
+              className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold"
+              style={{
+                fontFamily: "system-ui, -apple-system, sans-serif",
+              }}
+            >
               <Camera className="h-6 w-6" />
               Translator
             </TabsTrigger>
-            <TabsTrigger value="history" className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold" style={{ 
-              fontFamily: 'system-ui, -apple-system, sans-serif'
-            }}>
+            <TabsTrigger
+              value="history"
+              className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold"
+              style={{
+                fontFamily: "system-ui, -apple-system, sans-serif",
+              }}
+            >
               <Type className="h-6 w-6" />
               History
             </TabsTrigger>
-            <TabsTrigger value="settings" className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold" style={{ 
-              fontFamily: 'system-ui, -apple-system, sans-serif'
-            }}>
+            <TabsTrigger
+              value="settings"
+              className="flex items-center gap-3 rounded-md py-6 px-4 text-lg font-semibold"
+              style={{
+                fontFamily: "system-ui, -apple-system, sans-serif",
+              }}
+            >
               <Settings className="h-6 w-6" />
               Settings
             </TabsTrigger>
@@ -383,13 +456,19 @@ export default function App() {
               {/* Camera Section */}
               <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-xl font-semibold text-gray-900" style={{ 
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
+                  <CardTitle
+                    className="flex items-center gap-2 text-xl font-semibold text-gray-900"
+                    style={{
+                      fontFamily: "system-ui, -apple-system, sans-serif",
+                    }}
+                  >
                     <Camera className="h-5 w-5" />
                     Camera Feed
                     {cameraState.isActive && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                      <Badge
+                        variant="secondary"
+                        className="bg-green-100 text-green-800"
+                      >
                         <CheckCircle className="h-3 w-3 mr-1" />
                         Active
                       </Badge>
@@ -397,6 +476,23 @@ export default function App() {
                     {isRecording && (
                       <Badge variant="destructive" className="animate-pulse">
                         Recording
+                      </Badge>
+                    )}
+                    {isBackendAvailable ? (
+                      <Badge
+                        variant="secondary"
+                        className="bg-blue-100 text-blue-800"
+                      >
+                        <Wifi className="h-3 w-3 mr-1" />
+                        Backend Connected
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="destructive"
+                        className="bg-red-100 text-red-800"
+                      >
+                        <WifiOff className="h-3 w-3 mr-1" />
+                        Backend Offline
                       </Badge>
                     )}
                   </CardTitle>
@@ -413,6 +509,27 @@ export default function App() {
                       </Alert>
                     )}
 
+                    {/* Backend Error */}
+                    {recognitionError && (
+                      <Alert className="border-orange-200 bg-orange-50">
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                        <AlertDescription className="text-orange-800">
+                          Recognition Error: {recognitionError}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    {/* Backend Offline Warning */}
+                    {!isBackendAvailable && (
+                      <Alert className="border-yellow-200 bg-yellow-50">
+                        <WifiOff className="h-4 w-4 text-yellow-600" />
+                        <AlertDescription className="text-yellow-800">
+                          Backend server is offline. Please start the backend
+                          server to enable sign language recognition.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     {/* Camera Feed */}
                     <div className="relative bg-black rounded-lg overflow-hidden aspect-video border border-gray-600">
                       {/* Always render video element for ref access */}
@@ -422,37 +539,55 @@ export default function App() {
                         playsInline
                         muted
                         className="w-full h-full object-cover"
-                        style={{ display: cameraState.isActive ? 'block' : 'none' }}
+                        style={{
+                          display: cameraState.isActive ? "block" : "none",
+                        }}
                       />
                       <canvas
                         ref={canvasRef}
                         className="absolute inset-0 pointer-events-none"
-                        style={{ display: 'none' }}
+                        style={{ display: "none" }}
                       />
-                      
+
                       {/* Loading overlay */}
                       {cameraState.isLoading && (
                         <div className="absolute inset-0 w-full h-full flex items-center justify-center text-white bg-black bg-opacity-90">
                           <div className="text-center">
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                            <p className="text-sm font-medium" style={{ 
-                              fontFamily: 'system-ui, -apple-system, sans-serif'
-                            }}>Initializing camera...</p>
+                            <p
+                              className="text-sm font-medium"
+                              style={{
+                                fontFamily:
+                                  "system-ui, -apple-system, sans-serif",
+                              }}
+                            >
+                              Initializing camera...
+                            </p>
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Placeholder when camera not active */}
                       {!cameraState.isActive && !cameraState.isLoading && (
                         <div className="w-full h-full flex items-center justify-center text-gray-300">
                           <div className="text-center">
                             <Camera className="h-16 w-16 mx-auto mb-4 opacity-60 text-white" />
-                            <h3 className="text-xl mb-2 font-semibold text-white" style={{ 
-                              fontFamily: 'system-ui, -apple-system, sans-serif'
-                            }}>Camera Ready</h3>
-                            <p className="text-sm opacity-80 text-gray-300" style={{ 
-                              fontFamily: 'system-ui, -apple-system, sans-serif'
-                            }}>
+                            <h3
+                              className="text-xl mb-2 font-semibold text-white"
+                              style={{
+                                fontFamily:
+                                  "system-ui, -apple-system, sans-serif",
+                              }}
+                            >
+                              Camera Ready
+                            </h3>
+                            <p
+                              className="text-sm opacity-80 text-gray-300"
+                              style={{
+                                fontFamily:
+                                  "system-ui, -apple-system, sans-serif",
+                              }}
+                            >
                               Click "Start Recognition" to activate camera
                             </p>
                           </div>
@@ -469,19 +604,19 @@ export default function App() {
                           disabled={cameraState.isLoading}
                           variant={isRecording ? "destructive" : "default"}
                           className={`px-8 font-medium rounded-lg ${
-                            isRecording 
-                              ? 'bg-red-600 hover:bg-red-700 text-white border-2 border-red-600 shadow-lg' 
-                              : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-lg'
+                            isRecording
+                              ? "bg-red-600 hover:bg-red-700 text-white border-2 border-red-600 shadow-lg"
+                              : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-lg"
                           }`}
-                          style={{ 
-                            fontFamily: 'system-ui, -apple-system, sans-serif',
-                            minHeight: '48px',
-                            minWidth: '200px',
-                            color: isRecording ? 'white' : 'black',
-                            backgroundColor: isRecording ? '#dc2626' : 'white',
-                            borderColor: isRecording ? '#dc2626' : '#d1d5db',
+                          style={{
+                            fontFamily: "system-ui, -apple-system, sans-serif",
+                            minHeight: "48px",
+                            minWidth: "200px",
+                            color: isRecording ? "white" : "black",
+                            backgroundColor: isRecording ? "#dc2626" : "white",
+                            borderColor: isRecording ? "#dc2626" : "#d1d5db",
                             zIndex: 10,
-                            position: 'relative'
+                            position: "relative",
                           }}
                         >
                           {isRecording ? (
@@ -502,32 +637,62 @@ export default function App() {
                     {/* Status */}
                     <div className="text-center text-sm text-gray-600">
                       {cameraState.isLoading ? (
-                        <p style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>Initializing camera...</p>
+                        <p
+                          style={{
+                            fontFamily: "system-ui, -apple-system, sans-serif",
+                          }}
+                        >
+                          Initializing camera...
+                        </p>
                       ) : isRecording ? (
-                        <p className="flex items-center justify-center gap-2" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+                        <p
+                          className="flex items-center justify-center gap-2"
+                          style={{
+                            fontFamily: "system-ui, -apple-system, sans-serif",
+                          }}
+                        >
                           <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                          Processing sign language gestures...
+                          {isBackendAvailable
+                            ? "Processing sign language gestures..."
+                            : "Camera active, but backend offline"}
                         </p>
                       ) : cameraState.isActive ? (
-                        <p style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>Camera ready. Click "Start Recognition" to begin translation.</p>
+                        <p
+                          style={{
+                            fontFamily: "system-ui, -apple-system, sans-serif",
+                          }}
+                        >
+                          Camera ready.{" "}
+                          {isBackendAvailable
+                            ? 'Click "Start Recognition" to begin translation.'
+                            : "Backend offline - start backend server first."}
+                        </p>
                       ) : (
-                        <p style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>Click "Start Recognition" to activate camera and begin translation.</p>
+                        <p
+                          style={{
+                            fontFamily: "system-ui, -apple-system, sans-serif",
+                          }}
+                        >
+                          Click "Start Recognition" to activate camera and begin
+                          translation.
+                        </p>
                       )}
                     </div>
-
                   </div>
                 </CardContent>
               </Card>
-
 
               {/* Translation Output */}
               <div className="space-y-4 h-full flex flex-col">
                 {/* Current Translation */}
                 <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-xl font-semibold text-gray-900" style={{ 
-                      fontFamily: 'system-ui, -apple-system, sans-serif'
-                    }}>
+                    <CardTitle
+                      className="flex items-center gap-2 text-xl font-semibold text-gray-900"
+                      style={{
+                        fontFamily: "system-ui, -apple-system, sans-serif",
+                      }}
+                    >
                       <Type className="h-5 w-5" />
                       Current Translation
                     </CardTitle>
@@ -536,21 +701,32 @@ export default function App() {
                     <div className="min-h-[120px] p-4 bg-gray-50 rounded-lg border border-gray-200">
                       {currentText ? (
                         <div className="space-y-2">
-                          <p className="text-lg text-gray-900 leading-relaxed font-medium" style={{ 
-                            fontFamily: 'system-ui, -apple-system, sans-serif'
-                          }}>{currentText}</p>
+                          <p
+                            className="text-lg text-gray-900 leading-relaxed font-medium"
+                            style={{
+                              fontFamily:
+                                "system-ui, -apple-system, sans-serif",
+                            }}
+                          >
+                            {currentText}
+                          </p>
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => navigator.clipboard.writeText(currentText)}
+                            onClick={() =>
+                              navigator.clipboard.writeText(currentText)
+                            }
                           >
                             Copy Text
                           </Button>
                         </div>
                       ) : (
-                        <p className="text-gray-500 italic text-center py-4 font-medium" style={{ 
-                          fontFamily: 'system-ui, -apple-system, sans-serif'
-                        }}>
+                        <p
+                          className="text-gray-500 italic text-center py-4 font-medium"
+                          style={{
+                            fontFamily: "system-ui, -apple-system, sans-serif",
+                          }}
+                        >
                           Start recognition to see translations appear here...
                         </p>
                       )}
@@ -561,30 +737,33 @@ export default function App() {
                 {/* Text-to-Speech Section */}
                 <Card className="bg-white border border-gray-200 shadow-sm rounded-lg flex-1">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-xl font-semibold text-gray-900" style={{ 
-                      fontFamily: 'system-ui, -apple-system, sans-serif'
-                    }}>
+                    <CardTitle
+                      className="flex items-center gap-2 text-xl font-semibold text-gray-900"
+                      style={{
+                        fontFamily: "system-ui, -apple-system, sans-serif",
+                      }}
+                    >
                       <Volume2 className="h-5 w-5" />
                       Text-to-Speech
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                <TextToSpeech 
-                  text={currentText} 
-                />
+                    <TextToSpeech text={currentText} />
                   </CardContent>
                 </Card>
-
               </div>
             </div>
-            
+
             {/* Translation History - Full Width at Bottom */}
             <div className="mt-6">
               <Card className="bg-white border border-gray-200 shadow-sm rounded-lg">
                 <CardHeader>
-                  <CardTitle className="flex items-center justify-between text-xl font-semibold text-gray-900" style={{ 
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
+                  <CardTitle
+                    className="flex items-center justify-between text-xl font-semibold text-gray-900"
+                    style={{
+                      fontFamily: "system-ui, -apple-system, sans-serif",
+                    }}
+                  >
                     <span className="flex items-center gap-2">
                       <Type className="h-5 w-5" />
                       Translation History ({translations.length})
@@ -608,9 +787,15 @@ export default function App() {
                         className="p-3 bg-gray-50 rounded-lg border border-gray-200"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-gray-900" style={{ 
-                            fontFamily: 'system-ui, -apple-system, sans-serif'
-                          }}>{translation.text}</span>
+                          <span
+                            className="font-medium text-gray-900"
+                            style={{
+                              fontFamily:
+                                "system-ui, -apple-system, sans-serif",
+                            }}
+                          >
+                            {translation.text}
+                          </span>
                           <Badge variant="outline">
                             {Math.round(translation.confidence * 100)}%
                           </Badge>
@@ -621,9 +806,12 @@ export default function App() {
                       </div>
                     ))}
                     {translations.length === 0 && (
-                      <p className="text-gray-500 italic text-center py-4 font-medium" style={{ 
-                        fontFamily: 'system-ui, -apple-system, sans-serif'
-                      }}>
+                      <p
+                        className="text-gray-500 italic text-center py-4 font-medium"
+                        style={{
+                          fontFamily: "system-ui, -apple-system, sans-serif",
+                        }}
+                      >
                         No translations yet. Start recognition to see results.
                       </p>
                     )}
@@ -647,7 +835,9 @@ export default function App() {
                       className="p-4 bg-white rounded-lg border border-gray-200"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-lg font-medium">{translation.text}</span>
+                        <span className="text-lg font-medium">
+                          {translation.text}
+                        </span>
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">
                             {Math.round(translation.confidence * 100)}%
@@ -682,7 +872,9 @@ export default function App() {
                     <li>• Camera resolution: 1280x720 (adjustable)</li>
                     <li>• Processing delay: ~50ms per frame</li>
                     <li>• Memory usage: Optimized for real-time processing</li>
-                    <li>• Browser compatibility: Chrome, Firefox, Safari, Edge</li>
+                    <li>
+                      • Browser compatibility: Chrome, Firefox, Safari, Edge
+                    </li>
                   </ul>
                 </div>
               </CardContent>
@@ -690,7 +882,7 @@ export default function App() {
           </TabsContent>
         </Tabs>
       </div>
-      
+
       <Toaster />
     </div>
   );

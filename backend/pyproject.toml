@@ -1,0 +1,25 @@
+[project]
+name = "sign-language-backend"
+version = "1.0.0"
+description = "Sign Language Recognition Backend using MediaPipe and FastAPI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.118.0",
+    "mediapipe>=0.10.21",
+    "numpy>=1.26.4",
+    "opencv-python>=4.11.0.86",
+    "pillow>=11.3.0",
+    "python-multipart>=0.0.20",
+    "uvicorn>=0.37.0",
+]
+
+[project.scripts]
+start-server = "main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
