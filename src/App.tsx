@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Toaster } from "./components/ui/sonner";
 import TextToSpeech from "./components/TextToSpeech";
 import { useSignLanguageRecognition } from "./hooks/useSignLanguageRecognition";
+import MediaPipeHandLandmarker from "./components/MediaPipeHandLandmarker";
 
 interface TranslationEntry {
   id: string;
@@ -31,6 +32,7 @@ export default function App() {
   const [translations, setTranslations] = useState<TranslationEntry[]>([]);
   const [currentText, setCurrentText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [showHandLandmarks, setShowHandLandmarks] = useState(true);
   const [cameraState, setCameraState] = useState<{
     isActive: boolean;
     hasPermission: boolean;
@@ -373,6 +375,15 @@ export default function App() {
     setCurrentText("");
   }, []);
 
+  // Handle MediaPipe hand landmark results
+  const handleHandResults = useCallback((results: any) => {
+    // You can add additional processing here if needed
+    // For now, we'll just log the results for debugging
+    if (results.landmarks && results.landmarks.length > 0) {
+      console.log("Hand landmarks detected:", results.landmarks.length);
+    }
+  }, []);
+
   return (
     <div
       className="min-h-screen rounded-3xl mx-4 my-4"
@@ -546,7 +557,13 @@ export default function App() {
                       <canvas
                         ref={canvasRef}
                         className="absolute inset-0 pointer-events-none"
-                        style={{ display: "none" }}
+                        style={{
+                          display:
+                            showHandLandmarks && cameraState.isActive
+                              ? "block"
+                              : "none",
+                          zIndex: 10,
+                        }}
                       />
 
                       {/* Loading overlay */}
@@ -595,6 +612,14 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* MediaPipe Hand Landmarker */}
+                    <MediaPipeHandLandmarker
+                      videoRef={videoRef}
+                      canvasRef={canvasRef}
+                      isActive={cameraState.isActive && showHandLandmarks}
+                      onResults={handleHandResults}
+                    />
+
                     {/* Controls */}
                     <div className="flex flex-col gap-3">
                       <div className="flex justify-center">
@@ -632,6 +657,22 @@ export default function App() {
                           )}
                         </Button>
                       </div>
+
+                      {/* Hand Landmarks Toggle */}
+                      {cameraState.isActive && (
+                        <div className="flex justify-center">
+                          <Button
+                            onClick={() =>
+                              setShowHandLandmarks(!showHandLandmarks)
+                            }
+                            size="sm"
+                            variant="outline"
+                            className="px-4 py-2 text-sm"
+                          >
+                            {showHandLandmarks ? "Hide" : "Show"} Hand Landmarks
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Status */}
